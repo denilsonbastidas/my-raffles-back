@@ -367,7 +367,7 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
   }
 });
 
-// ADMIN authentication
+// <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>> 
 
 // Servir imágenes subidas
 app.use("/uploads", express.static("uploads"));
