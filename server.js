@@ -37,6 +37,7 @@ const RaffleSchema = new mongoose.Schema({
   description: String, // Descripción de la rifa
   ticketPrice: Number, // Precio por boleto
   images: [String],
+  visible: { type: Boolean, default: true }, // Nueva propiedad para mostrar u ocultar la rifa
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -117,6 +118,7 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
       description,
       ticketPrice,
       images,
+      visible: true,
     });
 
     await newRaffle.save();
@@ -128,16 +130,35 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
     res.status(500).json({ error: "Error al crear la rifa" });
   }
 });
+// cambiar el estado actual de la rifa (mostrar/ocultar)
+app.post("/api/raffles/toggle-visibility", async (req, res) => {
+  try {
+    const raffle = await Raffle.findOne();
+    if (!raffle) {
+      return res.status(404).json({ error: "No hay rifa activa" });
+    }
 
-// 📌 Endpoint para obtener todas las rifas
+    raffle.visible = !raffle.visible;
+    await raffle.save();
+
+    res.json({ message: "Estado actualizado", visible: raffle.visible });
+  } catch (error) {
+    console.error("Error al cambiar visibilidad de la rifa:", error);
+    res.status(500).json({ error: "Error al actualizar la visibilidad" });
+  }
+});
+
+// 📌 Endpoint para obtener rifa actual
 app.get("/api/raffles", async (req, res) => {
   try {
     const raffles = await Raffle.find();
-    
+
     // Agrega la URL base a cada imagen
-    const updatedRaffles = raffles.map(raffle => ({
+    const updatedRaffles = raffles.map((raffle) => ({
       ...raffle._doc,
-      images: raffle.images.map(img => `${req.protocol}://${req.get("host")}/uploads/${img}`)
+      images: raffle.images.map(
+        (img) => `${req.protocol}://${req.get("host")}/uploads/${img}`
+      ),
     }));
 
     res.json(updatedRaffles);
@@ -146,7 +167,6 @@ app.get("/api/raffles", async (req, res) => {
     res.status(500).json({ error: "Error al obtener rifas" });
   }
 });
-
 
 // 📌 Endpoint para recibir los datos del formulario y guardar en MongoDB
 app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
@@ -289,6 +309,10 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
 
 
        <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
+       <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
+         "es-ES",
+         { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+       )}</p>
 
     <p>Boleto(s) comprado(s) (${ticket.approvalCodes?.length}):</p>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
@@ -332,6 +356,57 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   }
 });
 
+// 📌 Endpoint para rechazar ticket
+app.post("/api/tickets/reject/:id", async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
+
+    const activeRaffle = await Raffle.findOne();
+
+    // Guardar el correo antes de eliminar el ticket
+    const userEmail = ticket.email;
+
+    // Eliminar el ticket de la base de datos
+    await Ticket.findByIdAndDelete(req.params.id);
+
+    const mailOptions = {
+      from: process.env.EMAIL,
+      to: userEmail,
+      subject: "❌ Ticket de Rifa Rechazado",
+      html: `
+      <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+        <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
+        <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
+        <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
+        <p><strong>📧 Correo de contacto:</strong> denilsonbastidas3@gmail.com</p>
+        <p><strong>📲 Numero de contacto:</strong> +584124698178</p>
+        <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+
+        <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+        <div style="justify-content: center; gap: 15px; margin: 0px;">
+          <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+          </a>
+          <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+          </a>
+          <a href="https://www.facebook.com/denilsonmcgrady" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+          </a>
+        </div>
+      </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: "Ticket rechazado y correo enviado" });
+  } catch (error) {
+    console.error("Error al rechazar el ticket:", error);
+    res.status(500).json({ error: "Error al rechazar el ticket" });
+  }
+});
+
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
   try {
@@ -367,7 +442,15 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
   }
 });
 
-// <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>> 
+// <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
+app.post("/api/admin/auth", async (req, res) => {
+  const { token } = req.body;
+  if (token !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ error: "denied" });
+  }
+
+  res.json({ message: "Success", token: process.env.ADMIN_SECRET });
+});
 
 // Servir imágenes subidas
 app.use("/uploads", express.static("uploads"));
