@@ -135,6 +135,24 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
     res.status(500).json({ error: "Error al crear la rifa" });
   }
 });
+
+// 📌 Endpoint para eliminar la rifa actual
+app.delete("/api/raffles", async (req, res) => {
+  try {
+    const existingRaffle = await Raffle.findOne();
+    if (!existingRaffle) {
+      return res.status(404).json({ error: "No hay una rifa activa para eliminar." });
+    }
+
+    await Raffle.deleteOne({ _id: existingRaffle._id });
+
+    res.status(200).json({ message: "Rifa eliminada exitosamente" });
+  } catch (error) {
+    console.error("Error al eliminar la rifa:", error);
+    res.status(500).json({ error: "Error al eliminar la rifa" });
+  }
+});
+
 // cambiar el estado actual de la rifa (mostrar/ocultar)
 app.post("/api/raffles/toggle-visibility", async (req, res) => {
   try {
@@ -344,6 +362,12 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
       subject: "🎟️ ¡Ticket De Rifa Aprobado!",
       html: `
   <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+
+     <!-- Logo -->
+          <div style="margin-bottom: 20px;">
+            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+
   <p style="margin-top: 20px;">Holaa, ¡Gracias por tu compra! ${
     activeRaffle.name
   } 🎉</p>
@@ -387,6 +411,13 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   </div>
   
   `,
+  attachments: [
+    {
+      filename: "logo.webp",
+      path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+      cid: "logoImage", // Se usa como referencia en el HTML
+    }
+  ],
     };
     await transporter.sendMail(mailOptions);
     res
@@ -418,6 +449,12 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
       subject: "❌ Ticket de Rifa Rechazado",
       html: `
       <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+
+      <!-- Logo -->
+          <div style="margin-bottom: 20px;">
+            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+
         <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
         <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
         <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
@@ -439,6 +476,13 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
         </div>
       </div>
       `,
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        }
+      ],
     };
 
     await transporter.sendMail(mailOptions);
