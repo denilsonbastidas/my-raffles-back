@@ -25,6 +25,8 @@ const TicketSchema = new mongoose.Schema({
   email: String,
   phone: String,
   reference: String,
+  paymentMethod: String,
+  amountPaid: String,
   voucher: String,
   createdAt: { type: Date, default: Date.now },
   approved: { type: Boolean, default: false },
@@ -38,6 +40,7 @@ const RaffleSchema = new mongoose.Schema({
   ticketPrice: Number, // Precio por boleto
   images: [String],
   visible: { type: Boolean, default: true }, // Nueva propiedad para mostrar u ocultar la rifa
+  minValue: Number, // minimo de compra boletos,
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -48,6 +51,7 @@ const Ticket = mongoose.model("Ticket", TicketSchema);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/images", express.static("images"));
 
 // 📌 Configuración de Multer para subir imágenes
 const storage = multer.diskStorage({
@@ -110,7 +114,7 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
         .json({ error: "Ya existe una rifa activa. No se pueden crear más." });
     }
 
-    const { name, description, ticketPrice } = req.body;
+    const { name, description, ticketPrice, minValue } = req.body;
     const images = req.files ? req.files.map((file) => file.filename) : [];
 
     const newRaffle = new Raffle({
@@ -119,6 +123,7 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
       ticketPrice,
       images,
       visible: true,
+      minValue,
     });
 
     await newRaffle.save();
@@ -171,7 +176,15 @@ app.get("/api/raffles", async (req, res) => {
 // 📌 Endpoint para recibir los datos del formulario y guardar en MongoDB
 app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
   try {
-    const { numberTickets, fullName, email, phone, reference } = req.body;
+    const {
+      numberTickets,
+      fullName,
+      email,
+      phone,
+      reference,
+      paymentMethod,
+      amountPaid,
+    } = req.body;
 
     const activeRaffle = await Raffle.findOne();
     if (!activeRaffle) {
@@ -186,6 +199,8 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
       email,
       phone,
       reference,
+      paymentMethod,
+      amountPaid,
       voucher: req.file ? req.file.filename : null,
     });
     await newTicket.save();
@@ -195,41 +210,61 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
       to: email,
       subject: "Confirmación de compra de ticket para la rifa",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #f9f9f9;">
-          <h2 style="color: #333; text-align: center;">¡Gracias por participar en nuestra rifa "${
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #ffffff; text-align: center;">
+          
+          <!-- Logo -->
+          <div style="margin-bottom: 20px;">
+            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+    
+          <!-- Título -->
+          <h2 style="color: #333;">¡Gracias por participar en nuestra rifa <br> "<strong>${
             activeRaffle.name
-          }"! 🎉</h2>
+          }</strong>" 🎉!</h2>
+          
+          <p style="font-size: 16px; color: #555;">Una vez confirmado tu pago, te enviaremos los tickets y/o números de tu compra.</p>
     
-          <p style="font-size: 16px; text-align: center;">Una vez confirmado tu pago, te enviaremos los tickets y/o números de tu compra.</p>
-    
-          <div style="background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
-            <h3 style="color: #444;">📌 Detalles de tu compra:</h3>
-            <p><strong>👤 Nombre completo:</strong> ${fullName}</p>
+          <!-- Detalles de compra -->
+          <div style="background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: left;">
+            <h3 style="color: #444; text-align: center; margin-bottom: 10px;">📌 Detalles de tu compra:</h3>
+            <p><strong>👤 Nombre:</strong> ${fullName}</p>
             <p><strong>✉️ Email:</strong> ${email}</p>
             <p><strong>📞 Teléfono:</strong> ${phone}</p>
-            <p><strong>🎫 Cantidad de boletos comprados:</strong> ${numberTickets}</p>
+            <p><strong>🎫 Boletos comprados:</strong> ${numberTickets}</p>
+            <p><strong>💳 Método de pago:</strong> ${paymentMethod}</p>
             <p><strong>🔗 Referencia de pago:</strong> ${reference}</p>
+            <p><strong>💰 Monto Pagado:</strong> ${amountPaid}${
+        paymentMethod === "BDV" ? "Bs" : "$"
+      }</p>
+       <p><strong>📅 Fecha de Compra:</strong> ${new Date()
+         .toLocaleDateString("es-ES", {
+           day: "2-digit",
+           month: "2-digit",
+           year: "numeric",
+         })
+         .replace(/\//g, "-")}</p>
           </div>
     
           ${
             req.file
               ? `
-          <div style="margin-top: 20px; text-align: center;">
-            <h3 style="color: #444;">🖼️ Imagen del pago:</h3>
+          <div style="margin-top: 20px;">
+            <h3 style="color: #444;">🖼️ Comprobante de pago:</h3>
             <img src="cid:voucherImage" alt="Comprobante de pago" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd;">
           </div>`
               : ""
           }
     
-          <p style="margin-top: 20px; text-align: center; font-size: 14px; color: #666;">
+          <p style="margin-top: 20px; font-size: 14px; color: #666;">
             ⏳ <strong>Recuerda:</strong> Debes esperar un lapso de <strong>24 a 36 horas</strong> mientras verificamos tu compra.
           </p>
     
           <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-
-           <p style="font-size: 14px; text-align: center; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-
-      <div style="display: flex; justify-content: center; text-align: center;  gap: 15px; ">
+    
+          <!-- Redes sociales -->
+          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+    
+         <div style=" justify-content: center; gap: 15px; margin: 0px;">
         <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
           <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
         </a>
@@ -242,15 +277,22 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
       </div>
         </div>
       `,
-      attachments: req.file
-        ? [
-            {
-              filename: req.file.filename,
-              path: req.file.path,
-              cid: "voucherImage", // Se usa como referencia en el HTML para mostrar la imagen
-            },
-          ]
-        : [],
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        },
+        ...(req.file
+          ? [
+              {
+                filename: req.file.filename,
+                path: req.file.path,
+                cid: "voucherImage",
+              },
+            ]
+          : []),
+      ],
     };
 
     // Enviar el correo
@@ -379,8 +421,8 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
         <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
         <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
         <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
-        <p><strong>📧 Correo de contacto:</strong> denilsonbastidas3@gmail.com</p>
-        <p><strong>📲 Numero de contacto:</strong> +584124698178</p>
+        <p><strong>📧 Correo de contacto: </strong>${process.env.EMAIL}</p>
+        <p><strong>📲 Numero de contacto: </strong>${process.env.PHONE_NUMBER}</p>
         <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
 
         <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
@@ -410,14 +452,22 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
   try {
-    const tickets = await Ticket.find();
-    res.json(tickets);
+    const tickets = await Ticket.find().sort({ createdAt: 1 });
+
+    // Agregar la URL completa de la imagen
+    const ticketsWithImageURL = tickets.map((ticket) => ({
+      ...ticket._doc, // Copia todos los datos originales del ticket
+      voucher: ticket.voucher
+        ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
+        : null,
+    }));
+
+    res.json(ticketsWithImageURL);
   } catch (error) {
     console.error("Error al obtener tickets:", error);
     res.status(500).json({ error: "Error al obtener los tickets" });
   }
 });
-
 // 📌 Endpoint para mostrar cuantos numeros se han vendido (opcional)
 app.get("/api/tickets/sold-numbers", async (req, res) => {
   try {
