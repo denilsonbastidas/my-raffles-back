@@ -289,7 +289,7 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
         <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
           <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
         </a>
-        <a href="https://www.facebook.com/denilsonmcgrady" target="_blank" style="text-decoration: none;">
+        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
           <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
         </a>
       </div>
@@ -404,7 +404,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
         <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
           <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
         </a>
-        <a href="https://www.facebook.com/denilsonmcgrady" target="_blank" style="text-decoration: none;">
+        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
           <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
         </a>
       </div>
@@ -470,7 +470,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
           <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
             <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
           </a>
-          <a href="https://www.facebook.com/denilsonmcgrady" target="_blank" style="text-decoration: none;">
+          <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
             <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
           </a>
         </div>
