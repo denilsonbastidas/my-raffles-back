@@ -242,7 +242,7 @@ app.post("/api/tickets", async (req, res) => {
     await newTicket.save();
 
     let voucherHtml = "";
-
+    console.log("Voucher Base64:", voucher);
 
     if (voucher) {
       voucherHtml = `
