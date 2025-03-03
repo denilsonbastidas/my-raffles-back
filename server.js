@@ -241,20 +241,6 @@ app.post("/api/tickets", async (req, res) => {
     });
     await newTicket.save();
 
-    let voucherHtml = "";
-    console.log("Voucher Base64:", voucher);
-
-    if (voucher) {
-      voucherHtml = `
-        <img
-          src="${voucher}"
-          style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;"
-        />
-      `;
-    } else {
-      voucherHtml = `<p style="color: #888;">No hay comprobantes de pago adjuntos.</p>`;
-    }
-
     const mailOptions = {
       from: process.env.EMAIL,
       to: email,
@@ -297,7 +283,7 @@ app.post("/api/tickets", async (req, res) => {
     
           <div style="margin-top: 20px;">
             <h3 style="color: #444;">🖼️ Comprobante de pago:</h3>
-            ${voucherHtml}
+            <img src="${voucher}" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;">
           </div>
     
           <p style="margin-top: 20px; font-size: 14px; color: #666;">
