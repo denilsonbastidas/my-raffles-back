@@ -129,7 +129,8 @@ app.post("/api/raffles", async (req, res) => {
         .json({ error: "Ya existe una rifa activa. No se pueden crear más." });
     }
 
-    const { name, description, ticketPrice, minValue, images } = req.body;
+    const { name, description, minValue, images } = req.body;
+    let ticketPrice = parseFloat(req.body.ticketPrice);
 
     if (!Array.isArray(images) || images.some(img => typeof img !== "string")) {
       return res.status(400).json({ error: "Las imágenes deben enviarse como un array de strings en Base64." });
