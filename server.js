@@ -243,6 +243,9 @@ app.post("/api/tickets", async (req, res) => {
 
     let voucherHtml = "";
 
+    console.log("voucher ❎❎❎❎", voucher)
+    console.log("voucher 🐸🐸🐸🐸", voucher.split("uploads/")[1])
+
     if (voucher) {
       voucherHtml = `
         <img
