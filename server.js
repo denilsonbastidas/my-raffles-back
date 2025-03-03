@@ -241,20 +241,10 @@ app.post("/api/tickets", async (req, res) => {
     });
     await newTicket.save();
 
-    const base64Data = voucher.replace(/^data:image\/\w+;base64,/, ""); 
-
     const mailOptions = {
       from: process.env.EMAIL,
       to: email,
       subject: "Confirmación de compra de ticket para la rifa",
-      attachments: [
-        {
-          filename: "voucher.jpg",
-          content: base64Data,
-          encoding: "base64",
-          cid: "voucherImage",
-        },
-      ],
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #ffffff; text-align: center;">
           
@@ -289,11 +279,6 @@ app.post("/api/tickets", async (req, res) => {
            year: "numeric",
          })
          .replace(/\//g, "-")}</p>
-          </div>
-    
-          <div style="margin-top: 20px;">
-            <h3 style="color: #444;">🖼️ Comprobante de pago:</h3>
-            <img src="cid:voucherImage" style="max-width:100%;border-radius:8px;border:1px solid #ddd;margin-top:10px;">
           </div>
     
           <p style="margin-top: 20px; font-size: 14px; color: #666;">
