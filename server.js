@@ -268,15 +268,25 @@ app.post("/api/tickets", async (req, res) => {
          .replace(/\//g, "-")}</p>
           </div>
     
-          ${
-            req.file
-              ? `
-          <div style="margin-top: 20px;">
-            <h3 style="color: #444;">🖼️ Comprobante de pago:</h3>
-            <img src="cid:voucherImage" alt="Comprobante de pago" style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd;">
-          </div>`
-              : ""
-          }
+          <div style={{ marginTop: "20px" }}>
+              <h3 style={{ color: "#444" }}>🖼️ Comprobante de pago:</h3>
+              ${Array.isArray(voucher) && voucher.length > 0 ? (
+                  voucher.map((img, index) => (
+                      <img
+                          key={index}
+                          src={img.split("uploads/")[1]}
+                          style={{
+                              maxWidth: "100%",
+                              borderRadius: "8px",
+                              border: "1px solid #ddd",
+                              marginTop: "10px",
+                          }}
+                      />
+                  ))
+              ) : (
+                  <p style={{ color: "#888" }}>No hay comprobantes de pago adjuntos.</p>
+              )}
+          </div>
     
           <p style="margin-top: 20px; font-size: 14px; color: #666;">
             ⏳ <strong>Recuerda:</strong> Debes esperar un lapso de <strong>24 a 36 horas</strong> mientras verificamos tu compra.
