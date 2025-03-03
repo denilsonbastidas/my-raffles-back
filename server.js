@@ -192,7 +192,7 @@ app.get("/api/raffles", async (req, res) => {
 });
 
 // 📌 Endpoint para recibir los datos del formulario y guardar en MongoDB
-app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
+app.post("/api/tickets", async (req, res) => {
   try {
     const {
       numberTickets,
@@ -202,6 +202,7 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
       reference,
       paymentMethod,
       amountPaid,
+      voucher
     } = req.body;
 
     const activeRaffle = await Raffle.findOne();
@@ -219,7 +220,7 @@ app.post("/api/tickets", upload.single("voucher"), async (req, res) => {
       reference,
       paymentMethod,
       amountPaid,
-      voucher: req.file ? req.file.filename : null,
+      voucher,
     });
     await newTicket.save();
 
