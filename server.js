@@ -241,6 +241,23 @@ app.post("/api/tickets", async (req, res) => {
     });
     await newTicket.save();
 
+    let voucherHtml = "";
+
+    if (Array.isArray(voucher) && voucher.length > 0) {
+      voucherHtml = voucher
+        .map(
+          (img) => `
+            <img
+              src="${img.split("uploads/")[1]}"
+              style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;"
+            />
+          `
+        )
+        .join("");
+    } else {
+      voucherHtml = `<p style="color: #888;">No hay comprobantes de pago adjuntos.</p>`;
+    }
+
     const mailOptions = {
       from: process.env.EMAIL,
       to: email,
@@ -281,24 +298,9 @@ app.post("/api/tickets", async (req, res) => {
          .replace(/\//g, "-")}</p>
           </div>
     
-          <div style={{ marginTop: "20px" }}>
-              <h3 style={{ color: "#444" }}>🖼️ Comprobante de pago:</h3>
-              ${Array.isArray(voucher) && voucher.length > 0 ? (
-                  voucher.map((img, index) => (
-                      <img
-                          key={index}
-                          src={img.split("uploads/")[1]}
-                          style={{
-                              maxWidth: "100%",
-                              borderRadius: "8px",
-                              border: "1px solid #ddd",
-                              marginTop: "10px",
-                          }}
-                      />
-                  ))
-              ) : (
-                  <p style={{ color: "#888" }}>No hay comprobantes de pago adjuntos.</p>
-              )}
+          <div style="margin-top: 20px;">
+            <h3 style="color: #444;">🖼️ Comprobante de pago:</h3>
+            ${voucherHtml}
           </div>
     
           <p style="margin-top: 20px; font-size: 14px; color: #666;">
