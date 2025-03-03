@@ -12,6 +12,25 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const PORT = process.env.PORT || 5000;
 
+app.use(
+  cors({
+    origin: "https://www.denilsonbastidas.com",
+    methods: "GET,POST,PUT,DELETE",
+    allowedHeaders: "Content-Type,Authorization",
+  })
+);
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://www.denilsonbastidas.com");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  next();
+});
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use("/images", express.static("images"));
+
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
 
 // 📌 Conectar a MongoDB
@@ -48,12 +67,6 @@ const RaffleSchema = new mongoose.Schema({
 
 const Raffle = mongoose.model("Raffle", RaffleSchema);
 const Ticket = mongoose.model("Ticket", TicketSchema);
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use("/images", express.static("images"));
 
 // 📌 Configuración de Multer para subir imágenes
 const storage = multer.diskStorage({
