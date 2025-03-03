@@ -147,6 +147,7 @@ app.delete("/api/raffles", async (req, res) => {
       return res.status(404).json({ error: "No hay una rifa activa para eliminar." });
     }
 
+    await Ticket.deleteMany({});
     await Raffle.deleteOne({ _id: existingRaffle._id });
 
     res.status(200).json({ message: "Rifa eliminada exitosamente" });
