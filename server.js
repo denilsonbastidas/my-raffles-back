@@ -104,7 +104,7 @@ const transporter = nodemailer.createTransport({
 });
 
 // 📌 Endpoint para crear una rifa con imágenes
-app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
+app.post("/api/raffles", async (req, res) => {
   try {
     const existingRaffle = await Raffle.findOne();
     if (existingRaffle) {
@@ -113,22 +113,23 @@ app.post("/api/raffles", upload.array("images", 5), async (req, res) => {
         .json({ error: "Ya existe una rifa activa. No se pueden crear más." });
     }
 
-    const { name, description, ticketPrice, minValue } = req.body;
-    const images = req.files ? req.files.map((file) => file.filename) : [];
+    const { name, description, ticketPrice, minValue, images } = req.body;
+
+    if (!Array.isArray(images) || images.some(img => typeof img !== "string")) {
+      return res.status(400).json({ error: "Las imágenes deben enviarse como un array de strings en Base64." });
+    }
 
     const newRaffle = new Raffle({
       name,
       description,
       ticketPrice,
-      images,
+      images, // Ahora guardamos directamente las imágenes en Base64
       visible: true,
       minValue,
     });
 
     await newRaffle.save();
-    res
-      .status(201)
-      .json({ message: "Rifa creada exitosamente", raffle: newRaffle });
+    res.status(201).json({ message: "Rifa creada exitosamente", raffle: newRaffle });
   } catch (error) {
     console.error("Error al crear la rifa:", error);
     res.status(500).json({ error: "Error al crear la rifa" });
