@@ -243,17 +243,13 @@ app.post("/api/tickets", async (req, res) => {
 
     let voucherHtml = "";
 
-    if (Array.isArray(voucher) && voucher.length > 0) {
-      voucherHtml = voucher
-        .map(
-          (img) => `
-            <img
-              src="${img.split("uploads/")[1]}"
-              style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;"
-            />
-          `
-        )
-        .join("");
+    if (voucher) {
+      voucherHtml = `
+        <img
+          src="${voucher.split("uploads/")[1]}"
+          style="max-width: 100%; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;"
+        />
+      `;
     } else {
       voucherHtml = `<p style="color: #888;">No hay comprobantes de pago adjuntos.</p>`;
     }
