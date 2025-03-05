@@ -31,7 +31,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/images", express.static("images"));
 
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
+const MONGO_URI =
+  process.env.MONGO_URI ||
+  "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
 
 // 📌 Conectar a MongoDB
 mongoose
@@ -132,8 +134,16 @@ app.post("/api/raffles", async (req, res) => {
     const { name, description, minValue, images } = req.body;
     let ticketPrice = parseFloat(req.body.ticketPrice);
 
-    if (!Array.isArray(images) || images.some(img => typeof img !== "string")) {
-      return res.status(400).json({ error: "Las imágenes deben enviarse como un array de strings en Base64." });
+    if (
+      !Array.isArray(images) ||
+      images.some((img) => typeof img !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Las imágenes deben enviarse como un array de strings en Base64.",
+        });
     }
 
     const newRaffle = new Raffle({
@@ -146,7 +156,9 @@ app.post("/api/raffles", async (req, res) => {
     });
 
     await newRaffle.save();
-    res.status(201).json({ message: "Rifa creada exitosamente", raffle: newRaffle });
+    res
+      .status(201)
+      .json({ message: "Rifa creada exitosamente", raffle: newRaffle });
   } catch (error) {
     console.error("Error al crear la rifa:", error);
     res.status(500).json({ error: "Error al crear la rifa" });
@@ -158,7 +170,9 @@ app.delete("/api/raffles", async (req, res) => {
   try {
     const existingRaffle = await Raffle.findOne();
     if (!existingRaffle) {
-      return res.status(404).json({ error: "No hay una rifa activa para eliminar." });
+      return res
+        .status(404)
+        .json({ error: "No hay una rifa activa para eliminar." });
     }
 
     await Ticket.deleteMany({});
@@ -220,7 +234,7 @@ app.post("/api/tickets", async (req, res) => {
       reference,
       paymentMethod,
       amountPaid,
-      voucher
+      voucher,
     } = req.body;
 
     const activeRaffle = await Raffle.findOne();
@@ -420,13 +434,13 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   </div>
   
   `,
-  attachments: [
-    {
-      filename: "logo.webp",
-      path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-      cid: "logoImage", // Se usa como referencia en el HTML
-    }
-  ],
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        },
+      ],
     };
     await transporter.sendMail(mailOptions);
     res
@@ -467,7 +481,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
         <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
         <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
         <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
-        <p><strong>📧 Correo de contacto: </strong>${process.env.EMAIL}</p>
+        <p><strong>📧 Correo de contacto: </strong>rifasdenilsonbastidas@gmail.com</p>
         <p><strong>📲 Numero de contacto: </strong>${process.env.PHONE_NUMBER}</p>
         <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
 
@@ -490,7 +504,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
           filename: "logo.webp",
           path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
           cid: "logoImage", // Se usa como referencia en el HTML
-        }
+        },
       ],
     };
 
@@ -499,6 +513,80 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
   } catch (error) {
     console.error("Error al rechazar el ticket:", error);
     res.status(500).json({ error: "Error al rechazar el ticket" });
+  }
+});
+
+// 📌 Endpoint para renviar aprobacion de ticket (en caso de no haberle llegado)
+app.post("/api/tickets/resend/:id", async (req, res) => {
+  try {
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
+
+    if (!ticket.approved) {
+      return res
+        .status(400)
+        .json({ error: "El ticket aún no ha sido aprobado." });
+    }
+
+    const activeRaffle = await Raffle.findOne();
+    if (!activeRaffle) {
+      return res
+        .status(400)
+        .json({ error: "No hay una rifa activa en este momento." });
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL,
+      to: ticket.email,
+      subject: "🎟️ Reenvío de Ticket Aprobado",
+      html: `
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+          <p>Hola, aquí están nuevamente tus boletos aprobados para ${
+            activeRaffle.name
+          } 🎉</p>
+          <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo!</h2>
+          <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
+          <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
+            "es-ES",
+            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+          )}</p>
+          <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px;">
+            ${ticket.approvalCodes
+              .map(
+                (code) => `
+                <div style="background: #f4f4f4; padding: 12px; border-radius: 8px; text-align: center;">
+                  🎟️ ${code}
+                </div>
+              `
+              )
+              .join("")}
+          </div>
+            <strong>Puedes comprar mas y aumentar tus posibilidades de ganar.<br>Estos numeros son elegidos aleatoriamente.</strong>
+    <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+
+      <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+
+      <div style=" justify-content: center; gap: 15px; margin: 0px;">
+        <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
+          <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+        </a>
+        <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
+          <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+        </a>
+        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
+          <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+        </a>
+      </div>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: "Correo reenviado exitosamente" });
+  } catch (error) {
+    console.error("Error al reenviar el correo:", error);
+    res.status(500).json({ error: "Error al reenviar el correo" });
   }
 });
 
