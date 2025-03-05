@@ -138,12 +138,10 @@ app.post("/api/raffles", async (req, res) => {
       !Array.isArray(images) ||
       images.some((img) => typeof img !== "string")
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Las imágenes deben enviarse como un array de strings en Base64.",
-        });
+      return res.status(400).json({
+        error:
+          "Las imágenes deben enviarse como un array de strings en Base64.",
+      });
     }
 
     const newRaffle = new Raffle({
@@ -547,7 +545,9 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
     
-          <p>Hola, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
+          <p>Hola, aquí están nuevamente tus boletos aprobados para <strong>${
+            activeRaffle.name
+          }</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
     
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
@@ -557,17 +557,17 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
           )}</p>
     
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px;">
-            ${ticket.approvalCodes
-              .map(
-                (code) => `
-                <div style="background: #f4f4f4; padding: 12px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold; border: 1px solid #ddd;">
-                  🎟️ ${code}
-                </div>
-              `
-              )
-              .join("")}
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
+      ${approvalCodes
+        .map(
+          (code) => `
+          <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
+           🎟️ ${code}
           </div>
+        `
+        )
+        .join("")}
+    </div>
     
           <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
           
@@ -596,7 +596,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
         },
       ],
     };
-    
+
     await transporter.sendMail(mailOptions);
     res.status(200).json({ message: "Correo reenviado exitosamente" });
   } catch (error) {
