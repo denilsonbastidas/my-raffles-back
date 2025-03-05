@@ -588,6 +588,26 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
   }
 });
 
+//  📌 Endpoint para actualizar correo
+app.put("/api/tickets/update-email/:id", async (req, res) => {
+  try {
+    const { newEmail } = req.body;
+    if (!newEmail) return res.status(400).json({ error: "Correo requerido" });
+
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
+
+    ticket.email = newEmail;
+    await ticket.save();
+
+    res.status(200).json({ message: "Correo actualizado correctamente" });
+  } catch (error) {
+    console.error("Error al actualizar el correo:", error);
+    res.status(500).json({ error: "Error al actualizar el correo" });
+  }
+});
+
+
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
   try {
