@@ -558,7 +558,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
     
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
-      ${approvalCodes
+      ${ticket.approvalCodes
         .map(
           (code) => `
           <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
