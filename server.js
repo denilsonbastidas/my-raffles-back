@@ -541,47 +541,62 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
       subject: "🎟️ Reenvío de Ticket Aprobado",
       html: `
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
-          <p>Hola, aquí están nuevamente tus boletos aprobados para ${
-            activeRaffle.name
-          } 🎉</p>
-          <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo!</h2>
+    
+          <!-- Logo -->
+          <div style="margin-bottom: 20px;">
+            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+    
+          <p>Hola, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
+          <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
+    
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
             "es-ES",
             { weekday: "long", year: "numeric", month: "long", day: "numeric" }
           )}</p>
+    
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px;">
             ${ticket.approvalCodes
               .map(
                 (code) => `
-                <div style="background: #f4f4f4; padding: 12px; border-radius: 8px; text-align: center;">
+                <div style="background: #f4f4f4; padding: 12px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold; border: 1px solid #ddd;">
                   🎟️ ${code}
                 </div>
               `
               )
               .join("")}
           </div>
-            <strong>Puedes comprar mas y aumentar tus posibilidades de ganar.<br>Estos numeros son elegidos aleatoriamente.</strong>
-    <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-
-      <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-
-      <div style=" justify-content: center; gap: 15px; margin: 0px;">
-        <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
-        </a>
-        <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
-        </a>
-        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
-        </a>
-      </div>
+    
+          <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
+          
+          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+    
+          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+    
+          <div style="justify-content: center; gap: 15px; margin: 0px;">
+            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
+              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+            </a>
+            <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
+              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+            </a>
+            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
+              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+            </a>
+          </div>
         </div>
       `,
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        },
+      ],
     };
-
+    
     await transporter.sendMail(mailOptions);
     res.status(200).json({ message: "Correo reenviado exitosamente" });
   } catch (error) {
