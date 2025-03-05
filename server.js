@@ -14,14 +14,14 @@ const PORT = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: "https://www.denilsonbastidas.com",
+    origin: "*",
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
   })
 );
 
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://www.denilsonbastidas.com");
+  res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   next();
@@ -33,13 +33,11 @@ app.use("/images", express.static("images"));
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
 
-// 📌 Conectar a MongoDB
 mongoose
   .connect(MONGO_URI)
   .then(() => console.log("✅ Conexión exitosa a MongoDB"))
   .catch((err) => console.error("❌ Error conectando a MongoDB:", err));
 
-// 📌 Definir el modelo Ticket
 const TicketSchema = new mongoose.Schema({
   numberTickets: Number,
   fullName: String,
@@ -54,21 +52,32 @@ const TicketSchema = new mongoose.Schema({
   approvalCodes: [String],
 });
 
-// 📌 Definir el modelo de la rifa actual
 const RaffleSchema = new mongoose.Schema({
-  name: String, // Nombre de la rifa
-  description: String, // Descripción de la rifa
-  ticketPrice: Number, // Precio por boleto
+  name: String,
+  description: String,
+  ticketPrice: Number,
   images: [String],
-  visible: { type: Boolean, default: true }, // Nueva propiedad para mostrar u ocultar la rifa
-  minValue: Number, // minimo de compra boletos,
+  visible: { type: Boolean, default: true },
+  minValue: Number,
   createdAt: { type: Date, default: Date.now },
 });
 
 const Raffle = mongoose.model("Raffle", RaffleSchema);
 const Ticket = mongoose.model("Ticket", TicketSchema);
 
-// 📌 Configuración de Multer para subir imágenes
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
@@ -80,15 +89,13 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// 📌 Método para generar códigos únicos de 4 dígitos
 const generateApprovalCodes = async (count) => {
   let codes = new Set();
 
-  // Obtener todos los códigos existentes en la base de datos
   const existingCodes = new Set(
     (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
       (ticket) => ticket.approvalCodes
-    ) // Convertir en un array plano
+    )
   );
 
   while (codes.size < count) {
@@ -96,7 +103,6 @@ const generateApprovalCodes = async (count) => {
       .toString()
       .padStart(4, "0");
 
-    // Asegurar que no esté en los códigos actuales ni en la base de datos
     if (!codes.has(code) && !existingCodes.has(code)) {
       codes.add(code);
     }
@@ -104,20 +110,6 @@ const generateApprovalCodes = async (count) => {
 
   return Array.from(codes);
 };
-
-// 📌 Configuración de Nodemailer
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false, // Agrega esto si sigue fallando
-  },
-});
 
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
@@ -140,7 +132,7 @@ app.post("/api/raffles", async (req, res) => {
       name,
       description,
       ticketPrice,
-      images, // Ahora guardamos directamente las imágenes en Base64
+      images,
       visible: true,
       minValue,
     });
@@ -194,7 +186,6 @@ app.get("/api/raffles", async (req, res) => {
   try {
     const raffles = await Raffle.find();
 
-    // Agrega la URL base a cada imagen
     const updatedRaffles = raffles.map((raffle) => ({
       ...raffle._doc,
       images: raffle.images.map(
@@ -307,8 +298,8 @@ app.post("/api/tickets", async (req, res) => {
       attachments: [
         {
           filename: "logo.webp",
-          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-          cid: "logoImage", // Se usa como referencia en el HTML
+          path: "images/logo.webp",
+          cid: "logoImage",
         },
         ...(req.file
           ? [
@@ -322,7 +313,6 @@ app.post("/api/tickets", async (req, res) => {
       ],
     };
 
-    // Enviar el correo
     await transporter.sendMail(mailOptions);
     res
       .status(201)
@@ -339,7 +329,6 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
-    // Obtener todos los códigos ya usados
     const existingCodes = new Set(
       (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
         (t) => t.approvalCodes
@@ -353,18 +342,15 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
         .json({ error: "No hay una rifa activa en este momento." });
     }
 
-    // Verificar si aún hay códigos disponibles
     if (existingCodes.size + ticket.numberTickets > process.env.MAX_CODES) {
       return res.status(400).json({ error: "No quedan números disponibles" });
     }
 
-    // Generar códigos y guardar
     const approvalCodes = await generateApprovalCodes(ticket.numberTickets);
     ticket.approved = true;
     ticket.approvalCodes = approvalCodes;
     await ticket.save();
 
-    // Enviar correo
     const mailOptions = {
       from: process.env.EMAIL,
       to: ticket.email,
@@ -423,8 +409,8 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   attachments: [
     {
       filename: "logo.webp",
-      path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-      cid: "logoImage", // Se usa como referencia en el HTML
+      path: "images/logo.webp",
+      cid: "logoImage",
     }
   ],
     };
@@ -446,10 +432,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
 
     const activeRaffle = await Raffle.findOne();
 
-    // Guardar el correo antes de eliminar el ticket
     const userEmail = ticket.email;
-
-    // Eliminar el ticket de la base de datos
     await Ticket.findByIdAndDelete(req.params.id);
 
     const mailOptions = {
@@ -488,8 +471,8 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
       attachments: [
         {
           filename: "logo.webp",
-          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-          cid: "logoImage", // Se usa como referencia en el HTML
+          path: "images/logo.webp",
+          cid: "logoImage",
         }
       ],
     };
@@ -507,9 +490,8 @@ app.get("/api/tickets", async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ createdAt: 1 });
 
-    // Agregar la URL completa de la imagen
     const ticketsWithImageURL = tickets.map((ticket) => ({
-      ...ticket._doc, // Copia todos los datos originales del ticket
+      ...ticket._doc,
       voucher: ticket.voucher
         ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
         : null,
@@ -521,16 +503,15 @@ app.get("/api/tickets", async (req, res) => {
     res.status(500).json({ error: "Error al obtener los tickets" });
   }
 });
+
 // 📌 Endpoint para mostrar cuantos numeros se han vendido (opcional)
 app.get("/api/tickets/sold-numbers", async (req, res) => {
   try {
-    // Obtener todos los approvalCodes de los tickets aprobados
     const soldNumbers = await Ticket.find(
       { approved: true },
       { approvalCodes: 1 }
     );
 
-    // Extraer los códigos en un solo array
     const allSoldNumbers = soldNumbers.flatMap(
       (ticket) => ticket.approvalCodes
     );
