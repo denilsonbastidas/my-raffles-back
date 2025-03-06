@@ -72,8 +72,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL,
-    pass: process.env.EMAIL_PASSWORD,
+    user: "rifas_support@denilsonbastidas.com",
+    pass: "kdif gstw hsdn tkak",
   },
   tls: {
     rejectUnauthorized: false,
@@ -246,7 +246,7 @@ app.post("/api/tickets", async (req, res) => {
     await newTicket.save();
 
     const mailOptions = {
-      from: process.env.EMAIL,
+      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
       to: email,
       subject: "Confirmación de compra de ticket para la rifa",
       html: `
@@ -364,7 +364,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
     await ticket.save();
 
     const mailOptions = {
-      from: process.env.EMAIL,
+      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
       to: ticket.email,
       subject: "🎟️ ¡Ticket De Rifa Aprobado!",
       html: `
@@ -448,7 +448,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
     await Ticket.findByIdAndDelete(req.params.id);
 
     const mailOptions = {
-      from: process.env.EMAIL,
+      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
       to: userEmail,
       subject: "❌ Ticket de Rifa Rechazado",
       html: `
@@ -517,7 +517,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
     }
 
     const mailOptions = {
-      from: process.env.EMAIL,
+      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
       to: ticket.email,
       subject: "🎟️ Reenvío de Ticket Aprobado",
       html: `
