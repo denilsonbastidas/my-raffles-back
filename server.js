@@ -380,7 +380,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   } 🎉</p>
   <h2 style="color: #4CAF50;">✅ ¡Tu ticket ha sido aprobado!</h2>
 
-       <p><strong>Usuario:</strong> ${ticket?.fullName.toUpperCase()}</p>
+       <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
        <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
        <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
          "es-ES",
