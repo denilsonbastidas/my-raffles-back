@@ -380,7 +380,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   } 🎉</p>
   <h2 style="color: #4CAF50;">✅ ¡Tu ticket ha sido aprobado!</h2>
 
-
+       <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
        <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
        <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
          "es-ES",
@@ -447,49 +447,49 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
     const userEmail = ticket.email;
     await Ticket.findByIdAndDelete(req.params.id);
 
-    // const mailOptions = {
-    //   from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
-    //   to: userEmail,
-    //   subject: "❌ Ticket de Rifa Rechazado",
-    //   html: `
-    //   <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+    const mailOptions = {
+      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
+      to: userEmail,
+      subject: "❌ Ticket de Rifa Rechazado",
+      html: `
+      <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
 
-    //   <!-- Logo -->
-    //       <div style="margin-bottom: 20px;">
-    //         <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
-    //       </div>
+      <!-- Logo -->
+          <div style="margin-bottom: 20px;">
+            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
 
-    //     <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
-    //     <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
-    //     <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
-    //     <p><strong>📧 Correo de contacto: </strong>rifasdenilsonbastidas@gmail.com</p>
-    //     <p><strong>📲 Numero de contacto: </strong>${process.env.PHONE_NUMBER}</p>
-    //     <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+        <h2 style="color: #FF0000;">❌ Tu ticket ha sido rechazado</h2>
+        <p>Hola, lamentamos informarte que tu solicitud de ticket para la rifa ${activeRaffle.name} ha sido rechazada.</p>
+        <p>Si crees que esto es un error, por favor contacta con nuestro equipo de soporte.</p>
+        <p><strong>📧 Correo de contacto: </strong>rifasdenilsonbastidas@gmail.com</p>
+        <p><strong>📲 Numero de contacto: </strong>${process.env.PHONE_NUMBER}</p>
+        <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
 
-    //     <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-    //     <div style="justify-content: center; gap: 15px; margin: 0px;">
-    //       <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
-    //         <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
-    //       </a>
-    //       <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
-    //         <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
-    //       </a>
-    //       <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
-    //         <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
-    //       </a>
-    //     </div>
-    //   </div>
-    //   `,
-    //   attachments: [
-    //     {
-    //       filename: "logo.webp",
-    //       path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-    //       cid: "logoImage", // Se usa como referencia en el HTML
-    //     },
-    //   ],
-    // };
+        <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+        <div style="justify-content: center; gap: 15px; margin: 0px;">
+          <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+          </a>
+          <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+          </a>
+          <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+          </a>
+        </div>
+      </div>
+      `,
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        },
+      ],
+    };
 
-    // await transporter.sendMail(mailOptions);
+    await transporter.sendMail(mailOptions);
     res.status(200).json({ message: "Ticket rechazado y correo enviado" });
   } catch (error) {
     console.error("Error al rechazar el ticket:", error);
