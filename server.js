@@ -611,7 +611,9 @@ app.put("/api/tickets/update-email/:id", async (req, res) => {
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
   try {
-    const tickets = await Ticket.find().sort({ createdAt: 1 });
+    const filter = req.query.status === "all" ? {} : { approved: false };
+
+    const tickets = await Ticket.find(filter).sort({ createdAt: 1 });
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
       ...ticket._doc,
