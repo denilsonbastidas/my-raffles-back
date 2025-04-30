@@ -91,6 +91,28 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// const generateApprovalCodes = async (count) => {
+//   let codes = new Set();
+
+//   const existingCodes = new Set(
+//     (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+//       (ticket) => ticket.approvalCodes
+//     )
+//   );
+
+//   while (codes.size < count) {
+//     let code = Math.floor(Math.random() * 10000)
+//       .toString()
+//       .padStart(4, "0");
+
+//     if (!codes.has(code) && !existingCodes.has(code)) {
+//       codes.add(code);
+//     }
+//   }
+
+//   return Array.from(codes);
+// };
+
 const generateApprovalCodes = async (count) => {
   let codes = new Set();
 
@@ -99,6 +121,11 @@ const generateApprovalCodes = async (count) => {
       (ticket) => ticket.approvalCodes
     )
   );
+
+  // Forzar el "7777" si aún no ha sido usado
+  if (!existingCodes.has("7777")) {
+    codes.add("7777");
+  }
 
   while (codes.size < count) {
     let code = Math.floor(Math.random() * 10000)
@@ -112,6 +139,7 @@ const generateApprovalCodes = async (count) => {
 
   return Array.from(codes);
 };
+
 
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
