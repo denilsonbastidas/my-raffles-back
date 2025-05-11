@@ -443,9 +443,9 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
-    const activeRaffle = await Raffle.findOne();
+    // const activeRaffle = await Raffle.findOne();
 
-    const userEmail = ticket.email;
+    // const userEmail = ticket.email;
     await Ticket.findByIdAndDelete(req.params.id);
 
     // const mailOptions = {
