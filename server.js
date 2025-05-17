@@ -246,87 +246,87 @@ app.post("/api/tickets", async (req, res) => {
     });
     await newTicket.save();
 
-    const mailOptions = {
-      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
-      to: email,
-      subject: "Confirmación de compra de ticket para la rifa",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #ffffff; text-align: center;">
+    // const mailOptions = {
+    //   from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
+    //   to: email,
+    //   subject: "Confirmación de compra de ticket para la rifa",
+    //   html: `
+    //     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #ffffff; text-align: center;">
           
-          <!-- Logo -->
-          <div style="margin-bottom: 20px;">
-            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
-          </div>
+    //       <!-- Logo -->
+    //       <div style="margin-bottom: 20px;">
+    //         <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+    //       </div>
     
-          <!-- Título -->
-          <h2 style="color: #333;">¡Gracias por participar en nuestra rifa <br> "<strong>${
-            activeRaffle.name
-          }</strong>" 🎉!</h2>
+    //       <!-- Título -->
+    //       <h2 style="color: #333;">¡Gracias por participar en nuestra rifa <br> "<strong>${
+    //         activeRaffle.name
+    //       }</strong>" 🎉!</h2>
           
-          <p style="font-size: 16px; color: #555;">Una vez confirmado tu pago, te enviaremos los tickets y/o números de tu compra.</p>
+    //       <p style="font-size: 16px; color: #555;">Una vez confirmado tu pago, te enviaremos los tickets y/o números de tu compra.</p>
     
-          <!-- Detalles de compra -->
-          <div style="background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: left;">
-            <h3 style="color: #444; text-align: center; margin-bottom: 10px;">📌 Detalles de tu compra:</h3>
-            <p><strong>👤 Nombre:</strong> ${fullName}</p>
-            <p><strong>✉️ Email:</strong> ${email}</p>
-            <p><strong>📞 Teléfono:</strong> ${phone}</p>
-            <p><strong>🎫 Boletos comprados:</strong> ${numberTickets}</p>
-            <p><strong>💳 Método de pago:</strong> ${paymentMethod}</p>
-            <p><strong>🔗 Referencia de pago:</strong> ${reference}</p>
-            <p><strong>💰 Monto Pagado:</strong> ${amountPaid}${
-        paymentMethod === "BDV" ? "Bs" : "$"
-      }</p>
-       <p><strong>📅 Fecha de Compra:</strong> ${new Date()
-         .toLocaleDateString("es-ES", {
-           day: "2-digit",
-           month: "2-digit",
-           year: "numeric",
-         })
-         .replace(/\//g, "-")}</p>
-          </div>
+    //       <!-- Detalles de compra -->
+    //       <div style="background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: left;">
+    //         <h3 style="color: #444; text-align: center; margin-bottom: 10px;">📌 Detalles de tu compra:</h3>
+    //         <p><strong>👤 Nombre:</strong> ${fullName}</p>
+    //         <p><strong>✉️ Email:</strong> ${email}</p>
+    //         <p><strong>📞 Teléfono:</strong> ${phone}</p>
+    //         <p><strong>🎫 Boletos comprados:</strong> ${numberTickets}</p>
+    //         <p><strong>💳 Método de pago:</strong> ${paymentMethod}</p>
+    //         <p><strong>🔗 Referencia de pago:</strong> ${reference}</p>
+    //         <p><strong>💰 Monto Pagado:</strong> ${amountPaid}${
+    //     paymentMethod === "BDV" ? "Bs" : "$"
+    //   }</p>
+    //    <p><strong>📅 Fecha de Compra:</strong> ${new Date()
+    //      .toLocaleDateString("es-ES", {
+    //        day: "2-digit",
+    //        month: "2-digit",
+    //        year: "numeric",
+    //      })
+    //      .replace(/\//g, "-")}</p>
+    //       </div>
     
-          <p style="margin-top: 20px; font-size: 14px; color: #666;">
-            ⏳ <strong>Recuerda:</strong> Debes esperar un lapso de <strong>24 a 36 horas</strong> mientras verificamos tu compra.
-          </p>
+    //       <p style="margin-top: 20px; font-size: 14px; color: #666;">
+    //         ⏳ <strong>Recuerda:</strong> Debes esperar un lapso de <strong>24 a 36 horas</strong> mientras verificamos tu compra.
+    //       </p>
     
-          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+    //       <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
     
-          <!-- Redes sociales -->
-          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+    //       <!-- Redes sociales -->
+    //       <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
     
-         <div style=" justify-content: center; gap: 15px; margin: 0px;">
-        <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
-        </a>
-        <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
-        </a>
-        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
-        </a>
-      </div>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: "logo.webp",
-          path: "images/logo.webp",
-          cid: "logoImage",
-        },
-        ...(req.file
-          ? [
-              {
-                filename: req.file.filename,
-                path: req.file.path,
-                cid: "voucherImage",
-              },
-            ]
-          : []),
-      ],
-    };
+    //      <div style=" justify-content: center; gap: 15px; margin: 0px;">
+    //     <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
+    //       <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+    //     </a>
+    //     <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
+    //       <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+    //     </a>
+    //     <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
+    //       <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+    //     </a>
+    //   </div>
+    //     </div>
+    //   `,
+    //   attachments: [
+    //     {
+    //       filename: "logo.webp",
+    //       path: "images/logo.webp",
+    //       cid: "logoImage",
+    //     },
+    //     ...(req.file
+    //       ? [
+    //           {
+    //             filename: req.file.filename,
+    //             path: req.file.path,
+    //             cid: "voucherImage",
+    //           },
+    //         ]
+    //       : []),
+    //   ],
+    // };
 
-    await transporter.sendMail(mailOptions);
+    // await transporter.sendMail(mailOptions);
     res
       .status(201)
       .json({ message: "Ticket creado exitosamente", ticket: newTicket });
@@ -367,7 +367,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
     const mailOptions = {
       from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
       to: ticket.email,
-      subject: "🎟️ ¡Ticket De Rifa Aprobado!",
+      subject: "🎟️ ¡TU COMPRA HA SIDO CONFIRMADA!",
       html: `
   <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
 
@@ -376,10 +376,10 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
-  <p style="margin-top: 20px;">Holaa, ¡Gracias por tu compra! ${
+  <p style="margin-top: 20px;">Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${
     activeRaffle.name
   } 🎉</p>
-  <h2 style="color: #4CAF50;">✅ ¡Tu ticket ha sido aprobado!</h2>
+  <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
 
        <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
        <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
@@ -388,7 +388,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
          { weekday: "long", year: "numeric", month: "long", day: "numeric" }
        )}</p>
 
-    <p>Boleto(s) comprado(s) (${ticket.approvalCodes?.length}):</p>
+    <p>Ticket(s) comprado(s) (${ticket.approvalCodes?.length}):</p>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
       ${approvalCodes
         .map(
@@ -534,6 +534,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
           }</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
     
+            <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
             "es-ES",
@@ -589,7 +590,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
   }
 });
 
-//  📌 Endpoint para actualizar correo
+//  📌 Endpoint para actualizar correo (hay que actualizar el telefono aqui tambien) !!!!!!!
 app.put("/api/tickets/update-email/:id", async (req, res) => {
   try {
     const { newEmail } = req.body;
