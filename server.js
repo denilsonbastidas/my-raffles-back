@@ -529,7 +529,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
     
-          <p>Hola, aquí están nuevamente tus boletos aprobados para <strong>${
+          <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${
             activeRaffle.name
           }</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
