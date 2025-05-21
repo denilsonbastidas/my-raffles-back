@@ -653,6 +653,52 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
   }
 });
 
+// endpoint para verificar tickets mediante correo electronico
+app.post("/api/tickets/check", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ error: "Email no proporcionado o inválido" });
+    }
+
+    const tickets = await Ticket.find({ email });
+
+    if (tickets.length === 0) {
+      return res.status(404).json({ error: "No se encontraron tickets con este correo" });
+    }
+
+    const approvedTickets = tickets.filter((ticket) => ticket.approved);
+
+    if (approvedTickets.length === 0) {
+      return res.status(400).json({
+        error: "Se encontraron tickets, pero ninguno ha sido aprobado aún.",
+      });
+    }
+
+    const result = approvedTickets.map((ticket) => ({
+      id: ticket._id,
+      nombre: ticket.fullName,
+      email: ticket.email,
+      tickets: ticket.approvalCodes,
+      aproved: new Date(ticket.updatedAt).toLocaleString("es-ES", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    }));
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error("Error al verificar tickets:", error);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
   const { token } = req.body;
