@@ -113,7 +113,6 @@ const generateApprovalCodes = async (count) => {
   return Array.from(codes);
 };
 
-
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
   try {
@@ -252,19 +251,19 @@ app.post("/api/tickets", async (req, res) => {
     //   subject: "Confirmación de compra de ticket para la rifa",
     //   html: `
     //     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: #ffffff; text-align: center;">
-          
+
     //       <!-- Logo -->
     //       <div style="margin-bottom: 20px;">
     //         <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
     //       </div>
-    
+
     //       <!-- Título -->
     //       <h2 style="color: #333;">¡Gracias por participar en nuestra rifa <br> "<strong>${
     //         activeRaffle.name
     //       }</strong>" 🎉!</h2>
-          
+
     //       <p style="font-size: 16px; color: #555;">Una vez confirmado tu pago, te enviaremos los tickets y/o números de tu compra.</p>
-    
+
     //       <!-- Detalles de compra -->
     //       <div style="background: #f8f8f8; padding: 20px; border-radius: 8px; text-align: left;">
     //         <h3 style="color: #444; text-align: center; margin-bottom: 10px;">📌 Detalles de tu compra:</h3>
@@ -285,16 +284,16 @@ app.post("/api/tickets", async (req, res) => {
     //      })
     //      .replace(/\//g, "-")}</p>
     //       </div>
-    
+
     //       <p style="margin-top: 20px; font-size: 14px; color: #666;">
     //         ⏳ <strong>Recuerda:</strong> Debes esperar un lapso de <strong>24 a 36 horas</strong> mientras verificamos tu compra.
     //       </p>
-    
+
     //       <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-    
+
     //       <!-- Redes sociales -->
     //       <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-    
+
     //      <div style=" justify-content: center; gap: 15px; margin: 0px;">
     //     <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
     //       <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
@@ -376,9 +375,9 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
-  <p style="margin-top: 20px;">Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${
-    activeRaffle.name
-  } 🎉</p>
+  <p style="margin-top: 20px;">Holaa ${
+    ticket?.fullName
+  }, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
   <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
 
        <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
@@ -419,13 +418,13 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   </div>
   
   `,
-  attachments: [
-    {
-      filename: "logo.webp",
-      path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-      cid: "logoImage", // Se usa como referencia en el HTML
-    }
-  ],
+      attachments: [
+        {
+          filename: "logo.webp",
+          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
+          cid: "logoImage", // Se usa como referencia en el HTML
+        },
+      ],
     };
     await transporter.sendMail(mailOptions);
     res
@@ -529,9 +528,11 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
     
-          <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${
-            activeRaffle.name
-          }</strong> 🎉</p>
+          <p>Hola ${
+            ticket?.fullName
+          }, aquí están nuevamente tus boletos aprobados para <strong>${
+        activeRaffle.name
+      }</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
     
             <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
@@ -609,7 +610,6 @@ app.put("/api/tickets/update-email/:id", async (req, res) => {
   }
 });
 
-
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
   try {
@@ -653,51 +653,53 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
   }
 });
 
-// endpoint para verificar tickets mediante correo electronico
+// endpoint para verificar tickets mediante correo electronico (luego mostrar fecha y hora que se aprobo)
 app.post("/api/tickets/check", async (req, res) => {
   try {
     const { email } = req.body;
 
     if (!email || typeof email !== "string") {
-      return res.status(400).json({ error: "Email no proporcionado o inválido" });
+      return res
+        .status(400)
+        .json({ error: "Email no proporcionado o inválido" });
     }
 
     const tickets = await Ticket.find({ email });
 
     if (tickets.length === 0) {
-      return res.status(404).json({ error: "No se encontraron tickets con este correo" });
+      return res
+        .status(404)
+        .json({ error: "No se encontraron tickets aprobados con este correo" });
     }
 
     const approvedTickets = tickets.filter((ticket) => ticket.approved);
 
     if (approvedTickets.length === 0) {
       return res.status(400).json({
-        error: "Se encontraron tickets, pero ninguno ha sido aprobado aún.",
+        error:
+          "Su compra fue recibida con éxito, pero aún no ha sido aprobada. Por favor, espere mientras verificamos la compra de sus tickets.",
       });
     }
 
-    const result = approvedTickets.map((ticket) => ({
-      id: ticket._id,
-      nombre: ticket.fullName,
-      email: ticket.email,
-      tickets: ticket.approvalCodes,
-      aproved: new Date(ticket.updatedAt).toLocaleString("es-ES", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    }));
+    const allApprovalCodes = approvedTickets.flatMap(
+      (ticket) => ticket.approvalCodes
+    );
 
-    return res.status(200).json({ success: true, data: result });
+    const firstTicket = approvedTickets[0];
+
+    const result = {
+      id: firstTicket._id,
+      nombre: firstTicket.fullName,
+      email: firstTicket.email,
+      tickets: allApprovalCodes,
+    };
+
+    return res.status(200).json({ success: true, data: [result] });
   } catch (error) {
     console.error("Error al verificar tickets:", error);
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 });
-
 
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
