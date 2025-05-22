@@ -592,23 +592,31 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
 });
 
 //  📌 Endpoint para actualizar correo (hay que actualizar el telefono aqui tambien) !!!!!!!
-app.put("/api/tickets/update-email/:id", async (req, res) => {
+app.put("/api/tickets/update-contact/:id", async (req, res) => {
   try {
-    const { newEmail } = req.body;
-    if (!newEmail) return res.status(400).json({ error: "Correo requerido" });
+    const { newEmail, newPhone } = req.body;
+
+    if (!newEmail && !newPhone) {
+      return res.status(400).json({ error: "Debe proporcionar un nuevo correo o número de teléfono" });
+    }
 
     const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
+    if (!ticket) {
+      return res.status(404).json({ error: "Ticket no encontrado" });
+    }
 
-    ticket.email = newEmail;
+    if (newEmail) ticket.email = newEmail;
+    if (newPhone) ticket.phone = newPhone;
+
     await ticket.save();
 
-    res.status(200).json({ message: "Correo actualizado correctamente" });
+    res.status(200).json({ message: "Datos de contacto actualizados correctamente" });
   } catch (error) {
-    console.error("Error al actualizar el correo:", error);
-    res.status(500).json({ error: "Error al actualizar el correo" });
+    console.error("Error al actualizar los datos de contacto:", error);
+    res.status(500).json({ error: "Error al actualizar los datos de contacto" });
   }
 });
+
 
 // 📌 Endpoint para obtener todos los tickets
 app.get("/api/tickets", async (req, res) => {
@@ -653,7 +661,7 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
   }
 });
 
-// endpoint para verificar tickets mediante correo electronico (luego mostrar fecha y hora que se aprobo)
+// endpoint para verificar tickets mediante correo electronico 
 app.post("/api/tickets/check", async (req, res) => {
   try {
     const { email } = req.body;
