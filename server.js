@@ -669,7 +669,7 @@ app.post("/api/tickets/check", async (req, res) => {
     if (tickets.length === 0) {
       return res
         .status(404)
-        .json({ error: "No se encontraron tickets aprobados con este correo" });
+        .json({ error: "No se encontraron tickets con este correo, El cliente no existe." });
     }
 
     const approvedTickets = tickets.filter((ticket) => ticket.approved);
