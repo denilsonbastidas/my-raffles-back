@@ -591,7 +591,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
   }
 });
 
-//  📌 Endpoint para actualizar correo (hay que actualizar el telefono aqui tambien) !!!!!!!
+//  📌 Endpoint para actualizar correo y telefono
 app.put("/api/tickets/update-contact/:id", async (req, res) => {
   try {
     const { newEmail, newPhone } = req.body;
@@ -638,6 +638,51 @@ app.get("/api/tickets", async (req, res) => {
     res.status(500).json({ error: "Error al obtener los tickets" });
   }
 });
+
+// endpoint para saber si el boleto existe
+app.get("/api/tickets/check", async (req, res) => {
+  try {
+    const { number } = req.query;
+
+    if (!number) {
+      return res
+        .status(400)
+        .json({ error: "Se requiere el número de boleto (`number`)." });
+    }
+
+    const ticket = await Ticket.findOne({ numberTickets: Number(number) });
+
+    if (!ticket) {
+      return res.status(200).json({
+        sold: false,
+        message: "Este boleto aún no ha sido vendido.",
+      });
+    }
+
+    const { _id, numberTickets, fullName, email, phone, reference, paymentMethod, amountPaid, approved, approvalCodes, createdAt } = ticket;
+
+    res.status(200).json({
+      sold: true,
+      data: {
+        _id,
+        numberTickets,
+        fullName,
+        email,
+        phone,
+        reference,
+        paymentMethod,
+        amountPaid,
+        approved,
+        approvalCodes,
+        createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error al verificar el boleto:", error);
+    res.status(500).json({ error: "Error al verificar el boleto." });
+  }
+});
+
 
 // 📌 Endpoint para mostrar cuantos numeros se han vendido (opcional)
 app.get("/api/tickets/sold-numbers", async (req, res) => {
