@@ -645,12 +645,15 @@ app.get("/api/tickets/check", async (req, res) => {
     const { number } = req.query;
 
     if (!number) {
-      return res
-        .status(400)
-        .json({ error: "Se requiere el número de boleto (`number`)." });
+      return res.status(400).json({
+        error: "Se requiere el número de boleto (`number`).",
+      });
     }
 
-    const ticket = await Ticket.findOne({ numberTickets: Number(number) });
+    const ticket = await Ticket.findOne(
+      { approvalCodes: String(number) },
+      '-voucher' 
+    );
 
     if (!ticket) {
       return res.status(200).json({
@@ -659,29 +662,16 @@ app.get("/api/tickets/check", async (req, res) => {
       });
     }
 
-    const { _id, numberTickets, fullName, email, phone, reference, paymentMethod, amountPaid, approved, approvalCodes, createdAt } = ticket;
-
     res.status(200).json({
       sold: true,
-      data: {
-        _id,
-        numberTickets,
-        fullName,
-        email,
-        phone,
-        reference,
-        paymentMethod,
-        amountPaid,
-        approved,
-        approvalCodes,
-        createdAt,
-      },
+      data: ticket,
     });
   } catch (error) {
     console.error("Error al verificar el boleto:", error);
     res.status(500).json({ error: "Error al verificar el boleto." });
   }
 });
+
 
 
 // 📌 Endpoint para mostrar cuantos numeros se han vendido (opcional)
