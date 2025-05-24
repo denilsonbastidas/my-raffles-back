@@ -699,7 +699,7 @@ app.get("/api/tickets/sold-numbers", async (req, res) => {
 // endpoint para verificar tickets mediante correo electronico 
 app.post("/api/tickets/check", async (req, res) => {
   try {
-    const { email } = req.body;
+    let { email } = req.body;
 
     if (!email || typeof email !== "string") {
       return res
@@ -707,12 +707,14 @@ app.post("/api/tickets/check", async (req, res) => {
         .json({ error: "Email no proporcionado o inválido" });
     }
 
-    const tickets = await Ticket.find({ email });
+    email = email.toLowerCase();
+
+    const tickets = await Ticket.find({ email: { $regex: `^${email}$`, $options: "i" } });
 
     if (tickets.length === 0) {
-      return res
-        .status(404)
-        .json({ error: "No se encontraron tickets con este correo, El cliente no existe." });
+      return res.status(404).json({
+        error: "No se encontraron tickets con este correo, El cliente no existe.",
+      });
     }
 
     const approvedTickets = tickets.filter((ticket) => ticket.approved);
@@ -743,6 +745,7 @@ app.post("/api/tickets/check", async (req, res) => {
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 });
+
 
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
