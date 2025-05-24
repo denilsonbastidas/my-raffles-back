@@ -618,27 +618,6 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
 });
 
 
-// // 📌 Endpoint para obtener todos los tickets
-// app.get("/api/tickets", async (req, res) => {
-//   try {
-//     const filter = req.query.status === "all" ? {} : { approved: false };
-
-//     const tickets = await Ticket.find(filter).sort({ createdAt: 1 });
-
-//     const ticketsWithImageURL = tickets.map((ticket) => ({
-//       ...ticket._doc,
-//       voucher: ticket.voucher
-//         ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
-//         : null,
-//     }));
-
-//     res.json(ticketsWithImageURL);
-//   } catch (error) {
-//     console.error("Error al obtener tickets:", error);
-//     res.status(500).json({ error: "Error al obtener los tickets" });
-//   }
-// });
-
 // 📌 Endpoint para obtener todos los tickets con filtros
 app.get("/api/tickets", async (req, res) => {
   try {
