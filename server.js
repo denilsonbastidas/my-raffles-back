@@ -618,20 +618,53 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
 });
 
 
-// 📌 Endpoint para obtener todos los tickets con filtros
+// // 📌 Endpoint para obtener todos los tickets con filtros
+// app.get("/api/tickets", async (req, res) => {
+//   try {
+//     const { status, paymentMethod } = req.query;
+
+//     // Filtro base según el status
+//     let filter = status === "all" ? {} : { approved: false };
+
+//     // Si viene paymentMethod en la query, lo agregamos al filtro
+//     if (paymentMethod) {
+//       filter.paymentMethod = paymentMethod;
+//     }
+
+//     const tickets = await Ticket.find(filter).sort({ createdAt: 1 });
+
+//     const ticketsWithImageURL = tickets.map((ticket) => ({
+//       ...ticket._doc,
+//       voucher: ticket.voucher
+//         ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
+//         : null,
+//     }));
+
+//     res.json(ticketsWithImageURL);
+//   } catch (error) {
+//     console.error("Error al obtener tickets:", error);
+//     res.status(500).json({ error: "Error al obtener los tickets" });
+//   }
+// });
+
+// 📌 Endpoint para obtener todos los tickets con filtros y paginación
 app.get("/api/tickets", async (req, res) => {
   try {
-    const { status, paymentMethod } = req.query;
+    const { status = "all", paymentMethod, page = 1, limit = 100 } = req.query;
 
-    // Filtro base según el status
-    let filter = status === "all" ? {} : { approved: false };
+    const filter = status === "all" ? {} : { approved: false };
 
-    // Si viene paymentMethod en la query, lo agregamos al filtro
     if (paymentMethod) {
       filter.paymentMethod = paymentMethod;
     }
 
-    const tickets = await Ticket.find(filter).sort({ createdAt: 1 });
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Ticket.countDocuments(filter);
+
+    const tickets = await Ticket.find(filter)
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
       ...ticket._doc,
@@ -640,12 +673,18 @@ app.get("/api/tickets", async (req, res) => {
         : null,
     }));
 
-    res.json(ticketsWithImageURL);
+    res.json({
+      data: ticketsWithImageURL,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
   } catch (error) {
     console.error("Error al obtener tickets:", error);
     res.status(500).json({ error: "Error al obtener los tickets" });
   }
 });
+
 
 
 // endpoint para saber si el boleto existe
