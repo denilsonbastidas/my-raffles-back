@@ -375,29 +375,28 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
-  <p style="margin-top: 20px;">Holaa ${
-    ticket?.fullName
-  }, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
+  <p style="margin-top: 20px;">Holaa ${ticket?.fullName
+        }, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
   <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
 
        <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
        <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
        <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-         "es-ES",
-         { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-       )}</p>
+          "es-ES",
+          { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+        )}</p>
 
     <p>Ticket(s) comprado(s) (${ticket.approvalCodes?.length}):</p>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
       ${approvalCodes
-        .map(
-          (code) => `
+          .map(
+            (code) => `
           <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
            🎟️ ${code}
           </div>
         `
-        )
-        .join("")}
+          )
+          .join("")}
     </div>
     <strong>Puedes comprar mas y aumentar tus posibilidades de ganar.<br>Estos numeros son elegidos aleatoriamente.</strong>
     <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
@@ -528,31 +527,29 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
             <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
     
-          <p>Hola ${
-            ticket?.fullName
-          }, aquí están nuevamente tus boletos aprobados para <strong>${
-        activeRaffle.name
-      }</strong> 🎉</p>
+          <p>Hola ${ticket?.fullName
+        }, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name
+        }</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
     
             <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-            "es-ES",
-            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-          )}</p>
+          "es-ES",
+          { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+        )}</p>
     
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
       ${ticket.approvalCodes
-        .map(
-          (code) => `
+          .map(
+            (code) => `
           <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
            🎟️ ${code}
           </div>
         `
-        )
-        .join("")}
+          )
+          .join("")}
     </div>
     
           <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
@@ -618,23 +615,27 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
 });
 
 
-// 📌 Endpoint para obtener todos los tickets con filtros
 app.get("/api/tickets", async (req, res) => {
   try {
-    const { status, paymentMethod } = req.query;
+    const { status, paymentMethod, page = 1, numbertoshow = 150 } = req.query;
+    const pageNumber = parseInt(page, 10);
+    const limit = parseInt(numbertoshow, 10);
+    const skip = (pageNumber - 1) * limit;
 
-    // Filtro base según el status
     let filter = status === "all" ? {} : { approved: false };
 
-    // Si viene paymentMethod en la query, lo agregamos al filtro
     if (paymentMethod) {
       filter.paymentMethod = paymentMethod;
     }
 
-    const tickets = await Ticket.find(filter).sort({ createdAt: 1 });
+    const tickets = await Ticket.find(filter)
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
-      ...ticket._doc,
+      ...ticket,
       voucher: ticket.voucher
         ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
         : null,
@@ -646,7 +647,6 @@ app.get("/api/tickets", async (req, res) => {
     res.status(500).json({ error: "Error al obtener los tickets" });
   }
 });
-
 
 // endpoint para saber si el boleto existe
 app.get("/api/tickets/check", async (req, res) => {
@@ -661,7 +661,7 @@ app.get("/api/tickets/check", async (req, res) => {
 
     const ticket = await Ticket.findOne(
       { approvalCodes: String(number) },
-      '-voucher' 
+      '-voucher'
     );
 
     if (!ticket) {
