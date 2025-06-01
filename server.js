@@ -632,7 +632,7 @@ app.get("/api/tickets", async (req, res) => {
       { $sort: { createdAt: 1 } },
       { $skip: skip },
       { $limit: limit }
-    ], { allowDiskUse: true });
+    ]).allowDiskUse(true);
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
       ...ticket,
