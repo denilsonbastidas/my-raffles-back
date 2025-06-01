@@ -628,11 +628,10 @@ app.get("/api/tickets", async (req, res) => {
     }
 
     const tickets = await Ticket.aggregate([
-      { $match: filter },
-      { $sort: { createdAt: 1 } },
+      { $match: filtro },
       { $skip: skip },
       { $limit: limit }
-    ]).allowDiskUse(true);
+    ]);
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
       ...ticket,
