@@ -628,7 +628,7 @@ app.get("/api/tickets", async (req, res) => {
     }
 
     const tickets = await Ticket.aggregate([
-      { $match: filtro },
+      { $match: filter },
       { $skip: skip },
       { $limit: limit }
     ]);
