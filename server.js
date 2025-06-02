@@ -756,40 +756,6 @@ app.post("/api/tickets/check", async (req, res) => {
   }
 });
 
-// precio del dolar Binance
-app.get("/api/parallel-dollar", async (req, res) => {
-  try {
-    const response = await axios.post(
-      "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search",
-      {
-        asset: "USDT",
-        fiat: "VES",
-        tradeType: "SELL",
-        page: 1,
-        rows: 1,
-        payTypes: [],
-        publisherType: null,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const price = parseFloat(response.data?.data?.[0]?.adv?.price);
-    if (!isNaN(price)) {
-      return res.status(200).json({ priceEnparalelovzla: Math.round(price) });
-    }
-
-    return res.status(200).json({ priceEnparalelovzla: EXCHANGE_RATE }); // fallback
-  } catch (error) {
-    console.error("Error in Binance API:", error.message);
-    return res.status(500).json({ priceEnparalelovzla: EXCHANGE_RATE }); // fallback
-  }
-});
-
-
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
   const { token } = req.body;
