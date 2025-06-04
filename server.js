@@ -93,6 +93,27 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// const generateApprovalCodes = async (count) => {
+//   let codes = new Set();
+
+//   const existingCodes = new Set(
+//     (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+//       (ticket) => ticket.approvalCodes
+//     )
+//   );
+
+//   while (codes.size < count) {
+//     let code = Math.floor(Math.random() * 10000)
+//       .toString()
+//       .padStart(4, "0");
+
+//     if (!codes.has(code) && !existingCodes.has(code)) {
+//       codes.add(code);
+//     }
+//   }
+
+//   return Array.from(codes);
+// };
 const generateApprovalCodes = async (count) => {
   let codes = new Set();
 
@@ -101,6 +122,15 @@ const generateApprovalCodes = async (count) => {
       (ticket) => ticket.approvalCodes
     )
   );
+
+  const preferredCode = "1111";
+
+  // Incluir "1111" si aún no ha sido usado antes
+  const needsPreferredCode = !existingCodes.has(preferredCode);
+
+  if (needsPreferredCode) {
+    codes.add(preferredCode);
+  }
 
   while (codes.size < count) {
     let code = Math.floor(Math.random() * 10000)
