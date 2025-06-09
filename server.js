@@ -102,6 +102,15 @@ const generateApprovalCodes = async (count) => {
     )
   );
 
+  const preferredCode = "0000";
+
+  // Incluir "XXXX" si aún no ha sido usado antes
+  const needsPreferredCode = !existingCodes.has(preferredCode);
+
+  if (needsPreferredCode) {
+    codes.add(preferredCode);
+  }
+
   while (codes.size < count) {
     let code = Math.floor(Math.random() * 10000)
       .toString()
@@ -114,6 +123,28 @@ const generateApprovalCodes = async (count) => {
 
   return Array.from(codes);
 };
+
+// const generateApprovalCodes = async (count) => {
+//   let codes = new Set();
+
+//   const existingCodes = new Set(
+//     (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+//       (ticket) => ticket.approvalCodes
+//     )
+//   );
+
+//   while (codes.size < count) {
+//     let code = Math.floor(Math.random() * 10000)
+//       .toString()
+//       .padStart(4, "0");
+
+//     if (!codes.has(code) && !existingCodes.has(code)) {
+//       codes.add(code);
+//     }
+//   }
+
+//   return Array.from(codes);
+// };
 
 
 // 📌 Endpoint para crear una rifa con imágenes
