@@ -10,6 +10,8 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+const EXCHANGE_RATE = 13;
+
 const PORT = process.env.PORT || 5000;
 
 app.use(
@@ -112,6 +114,7 @@ const generateApprovalCodes = async (count) => {
 
   return Array.from(codes);
 };
+
 
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
@@ -756,7 +759,6 @@ app.post("/api/tickets/check", async (req, res) => {
     return res.status(500).json({ error: "Error interno del servidor" });
   }
 });
-
 
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
