@@ -616,7 +616,7 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
 
 app.get("/api/tickets", async (req, res) => {
   try {
-    const { status, paymentMethod, page = 1, numbertoshow = 150 } = req.query;
+    const { status, paymentMethod, page = 1, numbertoshow = 150, order = "desc" } = req.query;
     const pageNumber = parseInt(page, 10);
     const limit = parseInt(numbertoshow, 10);
     const skip = (pageNumber - 1) * limit;
@@ -627,10 +627,13 @@ app.get("/api/tickets", async (req, res) => {
       filter.paymentMethod = paymentMethod;
     }
 
+    const sortOrder = order === "asc" ? 1 : -1;
+
     const tickets = await Ticket.aggregate([
       { $match: filter },
+      { $sort: { _id: sortOrder } },
       { $skip: skip },
-      { $limit: limit }
+      { $limit: limit },
     ]);
 
     const ticketsWithImageURL = tickets.map((ticket) => ({
