@@ -66,8 +66,13 @@ const RaffleSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+const DollarPriceSchema = new mongoose.Schema({
+  priceVez: String
+});
+
 const Raffle = mongoose.model("Raffle", RaffleSchema);
 const Ticket = mongoose.model("Ticket", TicketSchema);
+const Dollar = mongoose.model("Dollar", DollarPriceSchema);
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
@@ -146,6 +151,45 @@ const generateApprovalCodes = async (count) => {
   return Array.from(codes);
 };
 
+app.put("/api/dollar", async (req, res) => {
+  try {
+    const { priceVez } = req.body;
+
+    if (!priceVez) {
+      return res.status(400).json({ error: "El campo 'priceVez' es obligatorio." });
+    }
+
+    let dollar = await Dollar.findOne();
+
+    if (!dollar) {
+      dollar = new Dollar({ priceVez });
+    } else {
+      dollar.priceVez = priceVez;
+    }
+
+    await dollar.save();
+
+    res.status(200).json({ message: "Precio del dólar actualizado", dollar });
+  } catch (error) {
+    console.error("Error al actualizar el precio del dólar:", error);
+    res.status(500).json({ error: "Error del servidor al actualizar el precio" });
+  }
+});
+
+app.get("/api/dollar", async (req, res) => {
+  try {
+    const dollar = await Dollar.findOne();
+
+    if (!dollar) {
+      return res.status(404).json({ error: "No hay precio del dólar registrado." });
+    }
+
+    res.status(200).json(dollar);
+  } catch (error) {
+    console.error("Error al obtener el precio del dólar:", error);
+    res.status(500).json({ error: "Error del servidor al obtener el precio" });
+  }
+});
 
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
