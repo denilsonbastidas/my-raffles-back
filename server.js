@@ -107,7 +107,7 @@ const generateApprovalCodes = async (count) => {
     )
   );
 
-  const preferredCode = "1813";
+  const preferredCode = "0025";
 
   // Incluir "XXXX" si aún no ha sido usado antes
   const needsPreferredCode = !existingCodes.has(preferredCode);
