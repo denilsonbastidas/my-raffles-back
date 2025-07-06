@@ -574,6 +574,69 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
   }
 });
 
+app.get("/api/tickets/top-buyers", async (req, res) => {
+  try {
+    const topBuyers = await Ticket.aggregate([
+      {
+        $match: { approved: true },
+      },
+      {
+        $group: {
+          _id: "$email",
+          fullName: { $first: "$fullName" },
+          phone: { $first: "$phone" },
+          totalTickets: { $sum: "$numberTickets" },
+          purchases: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { totalTickets: -1 },
+      },
+      {
+        $limit: 10,
+      },
+    ]);
+
+    res.json(topBuyers);
+  } catch (error) {
+    console.error("Error al obtener el top de compradores:", error);
+    res.status(500).json({ error: "Error al obtener el top de compradores" });
+  }
+});
+
+app.get("/api/tickets/summary", async (req, res) => {
+  try {
+    const summary = await Ticket.aggregate([
+      {
+        $match: { approved: true },
+      },
+      {
+        $addFields: {
+          amountPaidNumber: { $toDouble: "$amountPaid" },
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentMethod",
+          total: { $sum: "$amountPaidNumber" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          paymentMethod: "$_id",
+          total: 1,
+        },
+      },
+    ]);
+
+    res.json(summary);
+  } catch (error) {
+    console.error("Error al obtener el resumen de pagos:", error);
+    res.status(500).json({ error: "Error al obtener el resumen de pagos" });
+  }
+});
+
 // 📌 Endpoint para renviar aprobacion de ticket (en caso de no haberle llegado)
 app.post("/api/tickets/resend/:id", async (req, res) => {
   try {
