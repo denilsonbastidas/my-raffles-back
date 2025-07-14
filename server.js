@@ -581,8 +581,13 @@ app.get("/api/tickets/top-buyers", async (req, res) => {
         $match: { approved: true },
       },
       {
+        $addFields: {
+          emailLower: { $toLower: "$email" },
+        },
+      },
+      {
         $group: {
-          _id: "$email",
+          _id: "$emailLower",
           fullName: { $first: "$fullName" },
           phone: { $first: "$phone" },
           totalTickets: { $sum: "$numberTickets" },
