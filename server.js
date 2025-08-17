@@ -283,7 +283,19 @@ app.get("/api/raffles", async (req, res) => {
       ),
     }));
 
-    res.json(updatedRaffles);
+    const soldNumbers = await Ticket.find(
+      { approved: true },
+      { approvalCodes: 1 }
+    );
+
+    const allSoldNumbers = soldNumbers.flatMap(
+      (ticket) => ticket.approvalCodes
+    );
+
+    res.json({
+      ...updatedRaffles,
+      totalSold: allSoldNumbers.length,
+    });
   } catch (error) {
     console.error("Error al obtener rifas:", error);
     res.status(500).json({ error: "Error al obtener rifas" });
