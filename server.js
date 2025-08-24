@@ -586,11 +586,24 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
   }
 });
 
-app.get("/api/tickets/top-buyers", async (req, res) => {
+app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
   try {
+    const { mode } = req.params;
+    let match = { approved: true };
+
+    if (mode === "today") {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+
+      match.createdAt = { $gte: startOfDay, $lte: endOfDay };
+    }
+
     const topBuyers = await Ticket.aggregate([
       {
-        $match: { approved: true },
+        $match: match,
       },
       {
         $addFields: {
