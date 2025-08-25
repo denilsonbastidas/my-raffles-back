@@ -80,8 +80,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: "rifas_support@denilsonbastidas.com",
-    pass: "kdif gstw hsdn tkak",
+    user: "rifasdenilsonbastidas@gmail.com",
+    pass: "fhdd znnk cpjs itam",
   },
   tls: {
     rejectUnauthorized: false,
@@ -455,7 +455,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
     await ticket.save();
 
     const mailOptions = {
-      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
+      from: '"Soporte Rifas" <rifasdenilsonbastidas@gmail.com>',
       to: ticket.email,
       subject: "🎟️ ¡TU COMPRA HA SIDO CONFIRMADA!",
       html: `
@@ -679,7 +679,7 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
     }
 
     const mailOptions = {
-      from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
+      from: '"Soporte Rifas" <rifasdenilsonbastidas@gmail.com>',
       to: ticket.email,
       subject: "🎟️ Reenvío de Ticket Aprobado",
       html: `
