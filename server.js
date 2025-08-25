@@ -6,6 +6,7 @@ const cors = require("cors");
 const path = require("path");
 const nodemailer = require("nodemailer");
 const moment = require("moment-timezone");
+const runChecks = require("./checkPorts");
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -587,7 +588,7 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
   }
 });
 
-app.get("/api/tickets/top-buyers/:mode", async (req, res) => { 
+app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
   try {
     const { mode } = req.params;
     let match = { approved: true };
@@ -936,4 +937,5 @@ app.use("/uploads", express.static("uploads"));
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor en http://localhost:${PORT}`);
+  runChecks();
 });
