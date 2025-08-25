@@ -5,6 +5,7 @@ const multer = require("multer");
 const cors = require("cors");
 const path = require("path");
 const nodemailer = require("nodemailer");
+const moment = require("moment-timezone");
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -586,25 +587,20 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
   }
 });
 
-app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
+app.get("/api/tickets/top-buyers/:mode", async (req, res) => { 
   try {
     const { mode } = req.params;
     let match = { approved: true };
 
     if (mode === "today") {
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
+      const startOfDay = moment.tz("America/Caracas").startOf("day").toDate();
+      const endOfDay = moment.tz("America/Caracas").endOf("day").toDate();
 
       match.createdAt = { $gte: startOfDay, $lte: endOfDay };
     }
 
     const topBuyers = await Ticket.aggregate([
-      {
-        $match: match,
-      },
+      { $match: match },
       {
         $addFields: {
           emailLower: { $toLower: "$email" },
@@ -619,12 +615,8 @@ app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
           purchases: { $sum: 1 },
         },
       },
-      {
-        $sort: { totalTickets: -1 },
-      },
-      {
-        $limit: 10,
-      },
+      { $sort: { totalTickets: -1 } },
+      { $limit: 10 },
     ]);
 
     res.json(topBuyers);
