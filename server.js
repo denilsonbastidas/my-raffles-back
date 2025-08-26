@@ -6,7 +6,6 @@ const cors = require("cors");
 const path = require("path");
 const nodemailer = require("nodemailer");
 const moment = require("moment-timezone");
-const runChecks = require("./checkPorts");
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -76,18 +75,11 @@ const Raffle = mongoose.model("Raffle", RaffleSchema);
 const Ticket = mongoose.model("Ticket", TicketSchema);
 const Dollar = mongoose.model("Dollar", DollarPriceSchema);
 
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: "rifasdenilsonbastidas@gmail.com",
-    pass: "fhdd znnk cpjs itam",
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+const SibApiV3Sdk = require("sib-api-v3-sdk");
+let defaultClient = SibApiV3Sdk.ApiClient.instance;
+let apiKey = defaultClient.authentications["api-key"];
+apiKey.apiKey = process.env.BREVO_API_KEY;
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -455,69 +447,58 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
     ticket.approvalCodes = approvalCodes;
     await ticket.save();
 
-    const mailOptions = {
-      from: '"Soporte Rifas" <rifasdenilsonbastidas@gmail.com>',
-      to: ticket.email,
+    const sendSmtpEmail = {
+      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
+      to: [{ email: ticket.email, name: ticket.fullName }],
       subject: "🎟️ ¡TU COMPRA HA SIDO CONFIRMADA!",
-      html: `
-  <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
-
-     <!-- Logo -->
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
           <div style="margin-bottom: 20px;">
-            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo.webp" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
-  <p style="margin-top: 20px;">Holaa ${ticket?.fullName
-        }, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
-  <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
+          <p>Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
+          <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
 
-       <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
-       <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
-       <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-          "es-ES",
-          { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-        )}</p>
+          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
+          <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
+          <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
+            "es-ES",
+            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+          )}</p>
 
-    <p>Ticket(s) comprado(s) (${ticket.approvalCodes?.length}):</p>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
-      ${approvalCodes
-          .map(
-            (code) => `
-          <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
-           🎟️ ${code}
+          <p>Ticket(s) comprado(s) (${approvalCodes.length}):</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
+            ${approvalCodes.map(
+              (code) => `
+              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
+                🎟️ ${code}
+              </div>
+            `
+            ).join("")}
           </div>
-        `
-          )
-          .join("")}
-    </div>
-    <strong>Puedes comprar mas y aumentar tus posibilidades de ganar.<br>Estos numeros son elegidos aleatoriamente.</strong>
-    <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
 
-      <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+          <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
+          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
 
-      <div style=" justify-content: center; gap: 15px; margin: 0px;">
-        <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
-        </a>
-        <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
-        </a>
-        <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
-          <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
-        </a>
-      </div>
-  </div>
-  
-  `,
-      attachments: [
-        {
-          filename: "logo.webp",
-          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-          cid: "logoImage", // Se usa como referencia en el HTML
-        },
-      ],
+          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+          <div style=" justify-content: center; gap: 15px; margin: 0px;">
+            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
+            </a>
+            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
+            </a>
+            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
+            </a>
+          </div>
+        </div>
+      `,
     };
-    await transporter.sendMail(mailOptions);
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+
     res
       .status(200)
       .json({ message: "Ticket aprobado y códigos enviados", approvalCodes });
@@ -660,91 +641,74 @@ app.get("/api/tickets/summary", async (req, res) => {
   }
 });
 
-// 📌 Endpoint para renviar aprobacion de ticket (en caso de no haberle llegado)
+// 📌 Endpoint para reenviar el ticket aprobado por correo
 app.post("/api/tickets/resend/:id", async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
     if (!ticket.approved) {
-      return res
-        .status(400)
-        .json({ error: "El ticket aún no ha sido aprobado." });
+      return res.status(400).json({ error: "El ticket aún no ha sido aprobado." });
     }
 
     const activeRaffle = await Raffle.findOne();
     if (!activeRaffle) {
-      return res
-        .status(400)
-        .json({ error: "No hay una rifa activa en este momento." });
+      return res.status(400).json({ error: "No hay una rifa activa en este momento." });
     }
 
-    const mailOptions = {
-      from: '"Soporte Rifas" <rifasdenilsonbastidas@gmail.com>',
-      to: ticket.email,
+    const sendSmtpEmail = {
+      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
+      to: [{ email: ticket.email, name: ticket.fullName }],
       subject: "🎟️ Reenvío de Ticket Aprobado",
-      html: `
+      htmlContent: `
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
-    
-          <!-- Logo -->
           <div style="margin-bottom: 20px;">
-            <img src="cid:logoImage" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo.webp" alt="Logo" 
+                 style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
-    
-          <p>Hola ${ticket?.fullName
-        }, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name
-        }</strong> 🎉</p>
+
+          <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
           <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
-    
-            <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
+
+          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-          "es-ES",
-          { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-        )}</p>
-    
+            "es-ES",
+            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+          )}</p>
+
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
-      ${ticket.approvalCodes
-          .map(
-            (code) => `
-          <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
-           🎟️ ${code}
+            ${ticket.approvalCodes.map(
+              (code) => `
+              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
+                🎟️ ${code}
+              </div>
+            `
+            ).join("")}
           </div>
-        `
-          )
-          .join("")}
-    </div>
-    
+
           <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
-          
           <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-    
+
           <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-    
           <div style="justify-content: center; gap: 15px; margin: 0px;">
-            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank" style="text-decoration: none;">
-              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" alt="TikTok" width="32" height="32">
+            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
             </a>
-            <a href="https://www.instagram.com/denilsonbastidas" target="_blank" style="text-decoration: none;">
-              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" alt="Instagram" width="32" height="32">
+            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
             </a>
-            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank" style="text-decoration: none;">
-              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" alt="Facebook" width="32" height="32">
+            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
             </a>
           </div>
         </div>
       `,
-      attachments: [
-        {
-          filename: "logo.webp",
-          path: "images/logo.webp", // Ruta donde tienes la imagen del logo en tu servidor
-          cid: "logoImage", // Se usa como referencia en el HTML
-        },
-      ],
     };
 
-    await transporter.sendMail(mailOptions);
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+
     res.status(200).json({ message: "Correo reenviado exitosamente" });
   } catch (error) {
     console.error("Error al reenviar el correo:", error);
@@ -937,5 +901,4 @@ app.use("/uploads", express.static("uploads"));
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor en http://localhost:${PORT}`);
-  runChecks();
 });
