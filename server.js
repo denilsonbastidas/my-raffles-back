@@ -286,9 +286,19 @@ app.get("/api/raffles", async (req, res) => {
       (ticket) => ticket.approvalCodes
     );
 
+    const allTickets = await Ticket.find();
+    const totalSoldWithNoAproved = allTickets.reduce((acc, ticket) => {
+      if (ticket.approved) {
+        return acc + ticket.approvalCodes.length;
+      } else {
+        return acc + (ticket.numberTickets || 0);
+      }
+    }, 0);
+
     res.json({
       ...updatedRaffles,
       totalSold: allSoldNumbers.length,
+      totalSoldWithNoAproved
     });
   } catch (error) {
     console.error("Error al obtener rifas:", error);
@@ -463,19 +473,19 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
           <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
           <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-            "es-ES",
-            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-          )}</p>
+        "es-ES",
+        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+      )}</p>
 
           <p>Ticket(s) comprado(s) (${approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
             ${approvalCodes.map(
-              (code) => `
+        (code) => `
               <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
                 🎟️ ${code}
               </div>
             `
-            ).join("")}
+      ).join("")}
           </div>
 
           <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
@@ -579,6 +589,11 @@ app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
       const endOfDay = moment.tz("America/Caracas").endOf("day").toDate();
 
       match.createdAt = { $gte: startOfDay, $lte: endOfDay };
+    } else if (mode === "yesterday") {
+      const startOfYesterday = moment.tz("America/Caracas").subtract(1, "day").startOf("day").toDate();
+      const endOfYesterday = moment.tz("America/Caracas").subtract(1, "day").endOf("day").toDate();
+
+      match.createdAt = { $gte: startOfYesterday, $lte: endOfYesterday };
     }
 
     const topBuyers = await Ticket.aggregate([
@@ -673,19 +688,19 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
           <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
           <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
           <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-            "es-ES",
-            { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-          )}</p>
+        "es-ES",
+        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+      )}</p>
 
           <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
             ${ticket.approvalCodes.map(
-              (code) => `
+        (code) => `
               <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
                 🎟️ ${code}
               </div>
             `
-            ).join("")}
+      ).join("")}
           </div>
 
           <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
