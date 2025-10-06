@@ -227,6 +227,39 @@ app.post("/api/raffles", async (req, res) => {
   }
 });
 
+app.put("/api/raffles", async (req, res) => {
+  try {
+    const { name, description, ticketPrice, images, minValue, visible } = req.body;
+
+    let raffle = await Raffle.findOne();
+
+    if (!raffle) {
+      return res.status(404).json({ error: "No existe ninguna rifa para actualizar." });
+    }
+
+    if (images && (!Array.isArray(images) || images.some((img) => typeof img !== "string"))) {
+      return res.status(400).json({
+        error: "Las imágenes deben enviarse como un array de strings en Base64.",
+      });
+    }
+
+    if (name !== undefined) raffle.name = name;
+    if (description !== undefined) raffle.description = description;
+    if (ticketPrice !== undefined) raffle.ticketPrice = parseFloat(ticketPrice);
+    if (minValue !== undefined) raffle.minValue = minValue;
+    if (visible !== undefined) raffle.visible = visible;
+    if (images !== undefined) raffle.images = images;
+
+    await raffle.save();
+
+    res.json({ message: "Rifa actualizada exitosamente", raffle });
+  } catch (error) {
+    console.error("❌ Error al actualizar la rifa:", error);
+    res.status(500).json({ error: "Error al actualizar la rifa" });
+  }
+});
+
+
 // 📌 Endpoint para eliminar la rifa actual
 app.delete("/api/raffles", async (req, res) => {
   try {
