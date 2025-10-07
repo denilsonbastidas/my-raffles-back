@@ -774,20 +774,38 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     }
 
     const responseParallelDollar = await Dollar.findOne();
+    const existingRaffle = await Raffle.findOne();
 
     if (!responseParallelDollar || !responseParallelDollar.priceVez) {
       return res.status(500).json({ error: "No se encontró el precio del dólar" });
     }
 
-    const dollarPrice = responseParallelDollar.priceVez;
+    if (!existingRaffle || !existingRaffle.ticketPrice) {
+      return res.status(500).json({ error: "No se encontró el sorteo o el precio del ticket" });
+    }
+
+    const dollarPrice = parseFloat(responseParallelDollar.priceVez);
     const oldPaymentMethod = ticket.paymentMethod;
     const newPaymentMethod = paymentMethod || oldPaymentMethod;
 
+    if (ticket.numberTickets != numberTickets && numberTickets > 0) {
+      const newTotalUSD = parseFloat(existingRaffle.ticketPrice) * parseInt(numberTickets);
+
+      if (newPaymentMethod === "BDV") {
+        ticket.amountPaid = newTotalUSD * dollarPrice;
+      } else {
+        ticket.amountPaid = newTotalUSD;
+      }
+    }
+
     if (oldPaymentMethod !== newPaymentMethod) {
-      if (oldPaymentMethod == "BDV" && (newPaymentMethod == "zelle" || newPaymentMethod == "binance")) {
-        ticket.amountPaid = parseFloat(ticket.amountPaid) / parseFloat(dollarPrice);
-      } else if ((oldPaymentMethod == "zelle" || oldPaymentMethod == "binance") && newPaymentMethod == "BDV") {
-        ticket.amountPaid = parseFloat(ticket.amountPaid) * parseFloat(dollarPrice) ;
+      if (oldPaymentMethod === "BDV" && (newPaymentMethod === "zelle" || newPaymentMethod === "binance")) {
+        ticket.amountPaid = parseFloat(ticket.amountPaid) / dollarPrice;
+      } else if (
+        (oldPaymentMethod === "zelle" || oldPaymentMethod === "binance") &&
+        newPaymentMethod === "BDV"
+      ) {
+        ticket.amountPaid = parseFloat(ticket.amountPaid) * dollarPrice;
       }
     }
 
@@ -802,7 +820,6 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
       message: "Datos de contacto actualizados correctamente",
       ticket,
     });
-
   } catch (error) {
     console.error("Error al actualizar los datos de contacto:", error);
     res.status(500).json({ error: "Error al actualizar los datos de contacto" });
