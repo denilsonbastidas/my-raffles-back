@@ -764,26 +764,45 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
   }
 });
 
-//  📌 Endpoint para actualizar correo y telefono
 app.put("/api/tickets/update-contact/:id", async (req, res) => {
   try {
-    const { newEmail, newPhone } = req.body;
-
-    if (!newEmail && !newPhone) {
-      return res.status(400).json({ error: "Debe proporcionar un nuevo correo o número de teléfono" });
-    }
+    const { newEmail, newPhone, numberTickets, paymentMethod } = req.body;
 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
       return res.status(404).json({ error: "Ticket no encontrado" });
     }
 
+    const responseParallelDollar = await Dollar.findOne();
+
+    if (!responseParallelDollar || !responseParallelDollar.priceVez) {
+      return res.status(500).json({ error: "No se encontró el precio del dólar" });
+    }
+
+    const dollarPrice = responseParallelDollar.priceVez;
+    const oldPaymentMethod = ticket.paymentMethod;
+    const newPaymentMethod = paymentMethod || oldPaymentMethod;
+
+    if (oldPaymentMethod !== newPaymentMethod) {
+      if (oldPaymentMethod == "BDV" && (newPaymentMethod == "zelle" || newPaymentMethod == "binance")) {
+        ticket.amountPaid = parseFloat(ticket.amountPaid) / parseFloat(dollarPrice);
+      } else if ((oldPaymentMethod == "zelle" || oldPaymentMethod == "binance") && newPaymentMethod == "BDV") {
+        ticket.amountPaid = parseFloat(ticket.amountPaid) * parseFloat(dollarPrice) ;
+      }
+    }
+
     if (newEmail) ticket.email = newEmail;
     if (newPhone) ticket.phone = newPhone;
+    if (numberTickets) ticket.numberTickets = numberTickets;
+    if (paymentMethod) ticket.paymentMethod = paymentMethod;
 
     await ticket.save();
 
-    res.status(200).json({ message: "Datos de contacto actualizados correctamente" });
+    res.status(200).json({
+      message: "Datos de contacto actualizados correctamente",
+      ticket,
+    });
+
   } catch (error) {
     console.error("Error al actualizar los datos de contacto:", error);
     res.status(500).json({ error: "Error al actualizar los datos de contacto" });
