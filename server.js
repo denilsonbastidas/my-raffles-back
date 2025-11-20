@@ -101,7 +101,7 @@ const generateApprovalCodes = async (count) => {
     )
   );
 
-  const preferredCode = "7777";
+  const preferredCode = "9987";
 
   // Incluir "XXXX" si aún no ha sido usado antes
   const needsPreferredCode = !existingCodes.has(preferredCode);
@@ -615,28 +615,27 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
 app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
   try {
     const { mode } = req.params;
-    const { startDate, endDate } = req.query;
     let match = { approved: true };
 
     if (mode === "today") {
       const startOfDay = moment.tz("America/Caracas").startOf("day").toDate();
       const endOfDay = moment.tz("America/Caracas").endOf("day").toDate();
-      match.createdAt = { $gte: startOfDay, $lte: endOfDay };
 
+      match.createdAt = { $gte: startOfDay, $lte: endOfDay };
     } else if (mode === "yesterday") {
       const startOfYesterday = moment.tz("America/Caracas").subtract(1, "day").startOf("day").toDate();
       const endOfYesterday = moment.tz("America/Caracas").subtract(1, "day").endOf("day").toDate();
-      match.createdAt = { $gte: startOfYesterday, $lte: endOfYesterday };
 
-    } else if (mode === "custom" && startDate && endDate) {
-      const start = moment.tz(startDate, "America/Caracas").startOf("day").toDate();
-      const end = moment.tz(endDate, "America/Caracas").endOf("day").toDate();
-      match.createdAt = { $gte: start, $lte: end };
+      match.createdAt = { $gte: startOfYesterday, $lte: endOfYesterday };
     }
 
     const topBuyers = await Ticket.aggregate([
       { $match: match },
-      { $addFields: { emailLower: { $toLower: "$email" } } },
+      {
+        $addFields: {
+          emailLower: { $toLower: "$email" },
+        },
+      },
       {
         $group: {
           _id: "$emailLower",
@@ -656,7 +655,6 @@ app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
     res.status(500).json({ error: "Error al obtener el top de compradores" });
   }
 });
-
 
 app.get("/api/tickets/summary", async (req, res) => {
   try {
