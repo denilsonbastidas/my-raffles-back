@@ -766,9 +766,34 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
   }
 });
 
+function round(value, decimals = 2) {
+  return Number(Math.round(value + "e" + decimals) + "e-" + decimals);
+}
+
 app.put("/api/tickets/update-contact/:id", async (req, res) => {
   try {
     const { newEmail, newPhone, numberTickets, paymentMethod } = req.body;
+
+    if (newEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return res.status(400).json({ error: "Email inválido" });
+    }
+
+    if (newPhone && !/^[0-9+\-\s]{6,20}$/.test(newPhone)) {
+      return res.status(400).json({ error: "Número telefónico inválido" });
+    }
+
+    if (numberTickets !== undefined) {
+      if (isNaN(numberTickets) || numberTickets <= 0) {
+        return res.status(400).json({ error: "numberTickets debe ser mayor que 0" });
+      }
+    }
+
+    const allowedMethods = ["zelle", "binance", "BDV"];
+    if (paymentMethod && !allowedMethods.includes(paymentMethod)) {
+      return res
+        .status(400)
+        .json({ error: "Método de pago inválido. Permitidos: zelle, binance, BDV" });
+    }
 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
@@ -778,43 +803,60 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     const responseParallelDollar = await Dollar.findOne();
     const existingRaffle = await Raffle.findOne();
 
-    if (!responseParallelDollar || !responseParallelDollar.priceVez) {
+    if (!responseParallelDollar || !parseFloat(responseParallelDollar.priceVez)) {
       return res.status(500).json({ error: "No se encontró el precio del dólar" });
     }
 
-    if (!existingRaffle || !existingRaffle.ticketPrice) {
+    if (!existingRaffle || !parseFloat(existingRaffle.ticketPrice)) {
       return res.status(500).json({ error: "No se encontró el sorteo o el precio del ticket" });
     }
 
     const dollarPrice = parseFloat(responseParallelDollar.priceVez);
+    const ticketPriceUSD = parseFloat(existingRaffle.ticketPrice);
+
     const oldPaymentMethod = ticket.paymentMethod;
     const newPaymentMethod = paymentMethod || oldPaymentMethod;
 
-    if (ticket.numberTickets != numberTickets && numberTickets > 0) {
-      const newTotalUSD = parseFloat(existingRaffle.ticketPrice) * parseInt(numberTickets);
+    let recalculatedUSD = null;
 
-      if (newPaymentMethod === "BDV") {
-        ticket.amountPaid = newTotalUSD * dollarPrice;
-      } else {
-        ticket.amountPaid = newTotalUSD;
-      }
+    if (numberTickets !== undefined && ticket.numberTickets != numberTickets) {
+      recalculatedUSD = ticketPriceUSD * numberTickets;
+      ticket.numberTickets = numberTickets;
     }
 
     if (oldPaymentMethod !== newPaymentMethod) {
-      if (oldPaymentMethod === "BDV" && (newPaymentMethod === "zelle" || newPaymentMethod === "binance")) {
-        ticket.amountPaid = parseFloat(ticket.amountPaid) / dollarPrice;
-      } else if (
-        (oldPaymentMethod === "zelle" || oldPaymentMethod === "binance") &&
-        newPaymentMethod === "BDV"
-      ) {
-        ticket.amountPaid = parseFloat(ticket.amountPaid) * dollarPrice;
+      let baseAmountUSD;
+
+      if (recalculatedUSD !== null) {
+        baseAmountUSD = recalculatedUSD;
+      } else {
+        if (oldPaymentMethod === "zelle" || oldPaymentMethod === "binance") {
+          baseAmountUSD = parseFloat(ticket.amountPaid);
+        } else {
+          baseAmountUSD = parseFloat(ticket.amountPaid) / dollarPrice;
+        }
+      }
+
+      if (newPaymentMethod === "BDV") {
+        ticket.amountPaid = round(baseAmountUSD * dollarPrice, 2);
+      } else {
+        ticket.amountPaid = round(baseAmountUSD, 2);
+      }
+
+      ticket.paymentMethod = newPaymentMethod;
+    }
+
+    if (recalculatedUSD !== null && oldPaymentMethod === newPaymentMethod) {
+
+      if (newPaymentMethod === "BDV") {
+        ticket.amountPaid = round(recalculatedUSD * dollarPrice, 2);
+      } else {
+        ticket.amountPaid = round(recalculatedUSD, 2);
       }
     }
 
     if (newEmail) ticket.email = newEmail;
     if (newPhone) ticket.phone = newPhone;
-    if (numberTickets) ticket.numberTickets = numberTickets;
-    if (paymentMethod) ticket.paymentMethod = paymentMethod;
 
     await ticket.save();
 
