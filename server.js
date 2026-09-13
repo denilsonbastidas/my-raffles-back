@@ -6,6 +6,10 @@ const cors = require("cors");
 const path = require("path");
 const nodemailer = require("nodemailer");
 const moment = require("moment-timezone");
+const dns = require("dns");
+
+// Node's c-ares resolver sometimes fails SRV lookups locally even when the OS resolver works; force public DNS.
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -64,6 +68,12 @@ const RaffleSchema = new mongoose.Schema({
   images: [String],
   visible: { type: Boolean, default: true },
   minValue: Number,
+  prizes: [
+    {
+      title: String,
+      amount: String,
+    },
+  ],
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -195,7 +205,7 @@ app.post("/api/raffles", async (req, res) => {
         .json({ error: "Ya existe una rifa activa. No se pueden crear más." });
     }
 
-    const { name, description, minValue, images } = req.body;
+    const { name, description, minValue, images, prizes } = req.body;
     let ticketPrice = parseFloat(req.body.ticketPrice);
 
     if (
@@ -215,6 +225,7 @@ app.post("/api/raffles", async (req, res) => {
       images,
       visible: true,
       minValue,
+      prizes: Array.isArray(prizes) ? prizes : [],
     });
 
     await newRaffle.save();
@@ -229,7 +240,7 @@ app.post("/api/raffles", async (req, res) => {
 
 app.put("/api/raffles", async (req, res) => {
   try {
-    const { name, description, ticketPrice, images, minValue, visible } = req.body;
+    const { name, description, ticketPrice, images, minValue, visible, prizes } = req.body;
 
     let raffle = await Raffle.findOne();
 
@@ -249,6 +260,7 @@ app.put("/api/raffles", async (req, res) => {
     if (minValue !== undefined) raffle.minValue = minValue;
     if (visible !== undefined) raffle.visible = visible;
     if (images !== undefined) raffle.images = images;
+    if (prizes !== undefined) raffle.prizes = Array.isArray(prizes) ? prizes : [];
 
     await raffle.save();
 
