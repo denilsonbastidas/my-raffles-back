@@ -509,7 +509,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
       htmlContent: `
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
           <div style="margin-bottom: 20px;">
-            <img src="https://my-raffles-back-production.up.railway.app/images/logo.webp" alt="Logo" style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
           <p>Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
@@ -725,8 +725,8 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
       htmlContent: `
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
           <div style="margin-bottom: 20px;">
-            <img src="https://my-raffles-back-production.up.railway.app/images/logo.webp" alt="Logo" 
-                 style="width: 100px; height: 100px; border-radius: 50%; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" 
+                 style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
           </div>
 
           <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
