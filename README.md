@@ -59,7 +59,18 @@ Esta migracion no recupera rifas o compras que ya hayan sido eliminadas por vers
 - `POST /api/raffles/close?raffleId=ID`: cierra sin borrar datos.
 - Todas las rutas de tickets requieren `raffleId` como query o en el cuerpo de la compra. Los IDs de ticket tambien deben pertenecer a la rifa indicada.
 - Las operaciones administrativas de rifas y tickets requieren `Authorization: Bearer <ADMIN_SECRET>`. Comprar y consultar numeros no requieren autenticacion.
-- Una aprobacion cuyo correo falla responde `502` con `approved: true`: los numeros ya estan guardados. Debe reenviarse el correo, no aprobarse otra vez.
+- Aprobar responde `200` al confirmar la transaccion, con `approvalCodes` y `emailDelivery.status: "queued"`. No espera a Brevo ni afirma que el correo ya se envio. Aprobar otra vez devuelve `409`.
+
+## Correos sin bloquear el panel
+
+- La aprobacion y el correo pendiente se guardan juntos en el ticket, en la misma transaccion. El proceso iniciado con `npm start` atiende esta cola persistente con dos envios concurrentes; no necesita otro servicio ni variables nuevas.
+- Los estados son `queued`, `sending`, `retrying`, `sent` y `failed`. La interfaz muestra el estado y consulta solo esos datos cada cinco segundos mientras haya envios pendientes, sin recargar compras ni comprobantes.
+- `GET /api/tickets/email-status?raffleId=ID&ids=ID1,ID2` consulta hasta 150 tickets de esa rifa; requiere administrador.
+- Brevo tiene un timeout de 20 segundos. Los fallos se registran y se reintentan hasta cinco intentos, con esperas exponenciales desde 15 segundos. Tras agotar los intentos, el panel muestra el fallo y permite Reenviar.
+- `POST /api/tickets/resend/:id?raffleId=ID` vuelve a poner el correo en cola, sin regenerar numeros. Si ya hay un envio pendiente, no agrega otro.
+- Si el servidor se reinicia, los trabajos pendientes siguen en MongoDB y los envios interrumpidos se recuperan al vencer su lease de dos minutos. La entrega es al menos una vez: un corte justo despues de que Brevo acepte un correo puede causar un duplicado, nunca nuevos numeros.
+- Las compras antiguas sin estado de correo no se reenvian automaticamente. `sent` significa aceptado por Brevo, no entrega garantizada a la bandeja del cliente.
+- Las ediciones de contacto envian solo campos modificados: bloquean la rifa y actualizan el ticket en dos operaciones de datos, sin una lectura previa adicional, comprobantes, reservas ni tasa del dolar. Las modificaciones financieras mantienen validaciones y transacciones.
 
 ## Carga progresiva del administrador
 
@@ -71,4 +82,4 @@ Esta migracion no recupera rifas o compras que ya hayan sido eliminadas por vers
 - `DELETE /api/tickets/:id?raffleId=ID`: elimina con copia de auditoria y devuelve si era aprobado/rechazado y cuantos numeros se liberaron. Requiere confirmacion explicita en la interfaz.
 - Las consultas de capacidad suman las reservas en MongoDB, sin descargar comprobantes. Se conserva el bloqueo transaccional por rifa para coordinar compras, edicion, aprobacion, eliminacion y cierre.
 
-Desplegar backend y frontend coordinadamente para el nuevo contrato de vouchers. No se necesitan nuevas variables de entorno ni una migracion manual; los indices y la coleccion de auditoria se preparan al iniciar. Las pruebas usan 150 compras con vouchers de 100 KB y exigen una respuesta de tabla inferior a 150 KB y una reduccion mayor al 99% frente a transmitir esos vouchers.
+Desplegar backend y frontend coordinadamente para los contratos de vouchers y envio de correo. No se necesitan nuevas variables de entorno ni una migracion manual; los indices, incluidos los de la cola, se preparan al iniciar. Mantener el servicio Node ejecutandose para procesar correos; no usar un runtime que congele el proceso entre peticiones. Las pruebas usan 150 compras con vouchers de 100 KB y exigen una respuesta de tabla inferior a 150 KB y una reduccion mayor al 99% frente a transmitir esos vouchers. Tambien bloquean el proveedor de correo y exigen respuestas de aprobacion y edicion inferiores a un segundo en la base local de pruebas; esto no mide la latencia de produccion.

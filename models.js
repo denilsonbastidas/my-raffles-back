@@ -22,6 +22,23 @@ const TicketSchema = new mongoose.Schema(
     rejected: { type: Boolean, default: false },
     rejectedAt: Date,
     approvalCodes: [String],
+    emailDelivery: {
+      type: new mongoose.Schema(
+        {
+          status: {
+            type: String,
+            enum: ["queued", "sending", "retrying", "sent", "failed"],
+          },
+          attempts: { type: Number, default: 0 },
+          nextAttemptAt: Date,
+          leaseUntil: Date,
+          leaseId: String,
+          sentAt: Date,
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
   },
   { optimisticConcurrency: true, autoIndex: false },
 );
@@ -33,6 +50,14 @@ TicketSchema.index(
 TicketSchema.index({ raffleId: 1, createdAt: -1 });
 TicketSchema.index({ raffleId: 1, _id: -1 });
 TicketSchema.index({ raffleId: 1, approved: 1, rejected: 1, _id: -1 });
+TicketSchema.index({
+  "emailDelivery.status": 1,
+  "emailDelivery.nextAttemptAt": 1,
+});
+TicketSchema.index({
+  "emailDelivery.status": 1,
+  "emailDelivery.leaseUntil": 1,
+});
 
 const RaffleSchema = new mongoose.Schema(
   {

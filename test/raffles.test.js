@@ -9,6 +9,9 @@ const { app, apiInstance } = require("../server");
 const { Raffle, Ticket, Dollar, DeletedTicket } = require("../models");
 const { migrateLegacyTickets } = require("../migrate");
 const { generateCodes } = require("../raffle-domain");
+const { deliverNextEmail } = require("../ticket-email");
+const deliver = () =>
+  deliverNextEmail((email) => apiInstance.sendTransacEmail(email));
 
 let database, server, base;
 let emails = [];
@@ -215,6 +218,8 @@ test("aprobación simultánea no duplica códigos ni procesa dos veces una compr
   assert.equal(codes.length, 4);
   assert.equal(new Set(codes).size, 4);
   assert.ok(tickets.every((ticket) => ticket.approvedAt instanceof Date));
+  assert.equal(emails.length, 0);
+  await Promise.all([deliver(), deliver()]);
   assert.equal(emails.length, 2);
   assert.ok(emails.every((email) => email.htmlContent.includes(raffle.name)));
 });
@@ -360,6 +365,7 @@ test("rifa cerrada permite consultas y reenvío correcto, pero ninguna modificac
       .status,
     200,
   );
+  await deliver();
   assert.ok(emails.at(-1).htmlContent.includes("Rifa anterior"));
   assert.ok(emails.at(-1).htmlContent.includes("Esta rifa está cerrada"));
   assert.ok(!emails.at(-1).htmlContent.includes("Puedes comprar más"));
@@ -463,13 +469,27 @@ test("fallo de correo mantiene aprobación y permite reenviar sin nuevos número
           {},
         )
       ).status,
-      502,
+      200,
+    );
+    await deliver();
+    assert.equal(
+      (await Ticket.findById(ticket._id)).emailDelivery.status,
+      "retrying",
     );
   } finally {
     apiInstance.sendTransacEmail = send;
   }
   const approved = await Ticket.findById(ticket._id);
   assert.equal(approved.approved, true);
+  await Ticket.updateOne(
+    { _id: ticket._id },
+    { $set: { "emailDelivery.nextAttemptAt": new Date(0) } },
+  );
+  await deliver();
+  assert.equal(
+    (await Ticket.findById(ticket._id)).emailDelivery.status,
+    "sent",
+  );
   assert.equal(
     (
       await request(
@@ -485,9 +505,187 @@ test("fallo de correo mantiene aprobación y permite reenviar sin nuevos número
       .status,
     200,
   );
+  await deliver();
   assert.deepEqual(
     [...(await Ticket.findById(ticket._id)).approvalCodes],
     [...approved.approvalCodes],
+  );
+});
+
+test("aprobar y editar responden sin esperar al proveedor de correo", async () => {
+  const raffle = await createRaffle();
+  const first = await buy(raffle);
+  const second = await buy(raffle);
+  let release;
+  const blocked = new Promise((resolve) => {
+    release = resolve;
+  });
+  let markSending;
+  const sending = new Promise((resolve) => {
+    markSending = resolve;
+  });
+  const send = apiInstance.sendTransacEmail;
+  apiInstance.sendTransacEmail = () => {
+    markSending();
+    return blocked;
+  };
+  let delivery;
+  try {
+    let deadline;
+    const start = performance.now();
+    const approval = await Promise.race([
+      request("POST", scoped(`/tickets/approve/${first._id}`, raffle), {}),
+      new Promise((_, reject) => {
+        deadline = setTimeout(
+          () => reject(new Error("La aprobación espera al correo")),
+          1000,
+        );
+      }),
+    ]).finally(() => clearTimeout(deadline));
+    assert.equal(approval.status, 200);
+    assert.equal(approval.data.emailDelivery.status, "queued");
+    const approvalMs = performance.now() - start;
+    delivery = deliver();
+    await sending;
+    const editStart = performance.now();
+    const commands = [];
+    const listener = (event) => commands.push(event.command);
+    mongoose.connection.getClient().on("commandStarted", listener);
+    let edit;
+    try {
+      edit = await request(
+        "PUT",
+        scoped(`/tickets/update-contact/${second._id}`, raffle),
+        { newEmail: "fast@example.com" },
+      );
+    } finally {
+      mongoose.connection.getClient().off("commandStarted", listener);
+    }
+    const editMs = performance.now() - editStart;
+    assert.equal(edit.status, 200);
+    assert.equal(edit.data.ticket.email, "fast@example.com");
+    assert.equal(edit.data.ticket.voucher, undefined);
+    assert.equal(
+      commands.filter((command) => command.findAndModify === "raffles").length,
+      1,
+    );
+    assert.equal(
+      commands.filter((command) => command.findAndModify === "tickets").length,
+      1,
+    );
+    assert.equal(
+      commands.filter(
+        (command) =>
+          command.find === "tickets" ||
+          command.find === "raffles" ||
+          command.aggregate ||
+          command.find === "dollars",
+      ).length,
+      0,
+    );
+    assert.ok(approvalMs < 1000 && editMs < 1000);
+    console.log(
+      `Operaciones sin esperar correo: aprobar ${Math.round(approvalMs)} ms, editar ${Math.round(editMs)} ms`,
+    );
+  } finally {
+    release({});
+    if (delivery) await delivery;
+    apiInstance.sendTransacEmail = send;
+  }
+});
+
+test("reenvíos simultáneos y workers concurrentes no duplican el mismo correo", async () => {
+  const raffle = await createRaffle();
+  const ticket = await buy(raffle);
+  await request("POST", scoped(`/tickets/approve/${ticket._id}`, raffle), {});
+  const responses = await Promise.all([
+    request("POST", scoped(`/tickets/resend/${ticket._id}`, raffle), {}),
+    request("POST", scoped(`/tickets/resend/${ticket._id}`, raffle), {}),
+  ]);
+  assert.ok(responses.every((response) => response.status === 200));
+  assert.deepEqual((await Promise.all([deliver(), deliver()])).sort(), [
+    false,
+    true,
+  ]);
+  assert.equal(emails.length, 1);
+  const status = (
+    await request(
+      "GET",
+      scoped(`/tickets/email-status?ids=${ticket._id}`, raffle),
+    )
+  ).data.tickets[0];
+  assert.equal(status.emailDelivery.status, "sent");
+  assert.ok(status.emailDelivery.sentAt);
+});
+
+test("cola persistente recupera leases vencidos y limita reintentos sin perder números", async () => {
+  const raffle = await createRaffle();
+  const ticket = await buy(raffle);
+  await request("POST", scoped(`/tickets/approve/${ticket._id}`, raffle), {});
+  const original = await Ticket.findById(ticket._id);
+  await Ticket.updateOne(
+    { _id: ticket._id },
+    {
+      $set: {
+        "emailDelivery.status": "sending",
+        "emailDelivery.leaseUntil": new Date(0),
+        "emailDelivery.leaseId": "old-worker",
+      },
+    },
+  );
+  assert.equal(await deliver(), true);
+  assert.equal(emails.length, 1);
+  assert.equal(
+    (await Ticket.findById(ticket._id)).emailDelivery.status,
+    "sent",
+  );
+  await request("POST", scoped(`/tickets/resend/${ticket._id}`, raffle), {});
+  const fail = async () => {
+    throw new Error("Proveedor no disponible");
+  };
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    await Ticket.updateOne(
+      { _id: ticket._id },
+      { $set: { "emailDelivery.nextAttemptAt": new Date(0) } },
+    );
+    await deliverNextEmail(fail);
+    const saved = await Ticket.findById(ticket._id);
+    assert.equal(saved.emailDelivery.attempts, attempt);
+    assert.equal(
+      saved.emailDelivery.status,
+      attempt === 5 ? "failed" : "retrying",
+    );
+  }
+  assert.equal(await deliverNextEmail(fail), false);
+  const saved = await Ticket.findById(ticket._id);
+  assert.deepEqual([...saved.approvalCodes], [...original.approvalCodes]);
+  assert.equal(saved.approved, true);
+  const response = await request(
+    "GET",
+    scoped(`/tickets/email-status?ids=${ticket._id}`, raffle),
+  );
+  assert.equal(response.data.tickets[0].emailDelivery.status, "failed");
+  assert.equal(response.data.tickets[0].emailDelivery.attempts, undefined);
+  assert.equal(
+    (
+      await request(
+        "GET",
+        scoped(`/tickets/email-status?ids=${ticket._id}`, raffle),
+        undefined,
+        false,
+      )
+    ).status,
+    403,
+  );
+  const other = await createRaffle("Otra rifa");
+  assert.deepEqual(
+    (
+      await request(
+        "GET",
+        scoped(`/tickets/email-status?ids=${ticket._id}`, other),
+      )
+    ).data.tickets,
+    [],
   );
 });
 
@@ -922,7 +1120,11 @@ test("pendientes se rechazan, solo aprobadas se eliminan, y borrado concurrente 
     0,
   );
   const removable = await buy(raffle);
-  await request("POST", scoped(`/tickets/approve/${removable._id}`, raffle), {});
+  await request(
+    "POST",
+    scoped(`/tickets/approve/${removable._id}`, raffle),
+    {},
+  );
   const responses = await Promise.all([
     request("DELETE", scoped(`/tickets/${removable._id}`, raffle)),
     request("DELETE", scoped(`/tickets/${removable._id}`, raffle)),

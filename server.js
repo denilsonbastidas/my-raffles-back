@@ -45,6 +45,7 @@ const MONGO_URI =
 const { Raffle, Ticket, Dollar, DeletedTicket } = require("./models");
 const { migrateLegacyTickets } = require("./migrate");
 const { TOTAL_NUMBERS, httpError, withActiveRaffle, reservedCount, generateCodes } = require("./raffle-domain");
+const { queuedEmail, startEmailWorker } = require("./ticket-email");
 
 const isAdmin = (req) => Boolean(process.env.ADMIN_SECRET) &&
   req.get("Authorization") === `Bearer ${process.env.ADMIN_SECRET}`;
@@ -54,7 +55,7 @@ app.use("/api", (req, res, next) => {
   const ticketAdministration = req.path.startsWith("/tickets") && (
     req.method === "PUT" || req.method === "DELETE" ||
     (req.method === "POST" && !["/tickets", "/tickets/check"].includes(req.path)) ||
-    (req.method === "GET" && (req.path === "/tickets" || req.path === "/tickets/summary" || req.path.endsWith("/voucher") || req.path.startsWith("/tickets/top-buyers/")))
+    (req.method === "GET" && (req.path === "/tickets" || req.path === "/tickets/summary" || req.path === "/tickets/email-status" || req.path.endsWith("/voucher") || req.path.startsWith("/tickets/top-buyers/")))
   );
   if ((raffleMutation || ticketAdministration || req.path.startsWith("/admin/raffles")) && !isAdmin(req)) {
     return res.status(403).json({ error: "Se requiere acceso de administrador." });
@@ -75,6 +76,13 @@ app.use("/api/tickets", async (req, res, next) => {
     if (typeof id !== "string" || !mongoose.isValidObjectId(id)) {
       return res.status(400).json({ error: "Se requiere un raffleId válido." });
     }
+    // These mutations validate and lock the raffle inside their transaction.
+    if ((req.method === "POST" && /^\/(approve|reject)\/[^/]+$/.test(req.path)) ||
+        (req.method === "PUT" && /^\/update-contact\/[^/]+$/.test(req.path)) ||
+        (req.method === "DELETE" && /^\/[^/]+$/.test(req.path))) {
+      req.raffle = { _id: new mongoose.Types.ObjectId(id) };
+      return next();
+    }
     const raffle = await Raffle.findById(id).select("-images").lean();
     if (!raffle) return res.status(404).json({ error: "Rifa no encontrada." });
     req.raffle = raffle;
@@ -87,6 +95,7 @@ app.use("/api/tickets", async (req, res, next) => {
 
 const SibApiV3Sdk = require("sib-api-v3-sdk");
 let defaultClient = SibApiV3Sdk.ApiClient.instance;
+defaultClient.timeout = 20000;
 let apiKey = defaultClient.authentications["api-key"];
 apiKey.apiKey = process.env.BREVO_API_KEY;
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
@@ -459,7 +468,7 @@ app.post("/api/tickets", async (req, res) => {
   }
 });
 
-// 📌 Endpoint para aprobar el ticket y enviar códigos por correo
+// 📌 Aprueba y guarda el correo pendiente en la misma transacción.
 app.post("/api/tickets/approve/:id", async (req, res) => {
   try {
     const activeRaffle = req.raffle;
@@ -471,71 +480,13 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
       purchase.approvalCodes = generateCodes(purchase.numberTickets, new Set(existing.flatMap((item) => item.approvalCodes)));
       purchase.approved = true;
       purchase.approvedAt = new Date();
+      purchase.emailDelivery = queuedEmail();
       await purchase.save({ session });
       return purchase;
     });
-    const approvalCodes = ticket.approvalCodes;
-
-    const sendSmtpEmail = {
-      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
-      to: [{ email: ticket.email, name: ticket.fullName }],
-      subject: "🎟️ ¡TU COMPRA HA SIDO CONFIRMADA!",
-      htmlContent: `
-        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
-          <div style="margin-bottom: 20px;">
-            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
-          </div>
-
-          <p>Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
-          <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
-
-          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
-          <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
-          <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
-        "es-ES",
-        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-      )}</p>
-
-          <p>Ticket(s) comprado(s) (${approvalCodes.length}):</p>
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
-            ${approvalCodes.map(
-        (code) => `
-              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
-                🎟️ ${code}
-              </div>
-            `
-      ).join("")}
-          </div>
-
-          <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
-          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-
-          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-          <div style=" justify-content: center; gap: 15px; margin: 0px;">
-            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
-            </a>
-            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
-            </a>
-            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
-            </a>
-          </div>
-        </div>
-      `,
-    };
-
-    try {
-      await apiInstance.sendTransacEmail(sendSmtpEmail);
-    } catch (error) {
-      console.error("Compra aprobada, fallo en el correo:", error);
-      return res.status(502).json({ error: "La compra quedó aprobada, pero falló el correo. Use reenviar; no vuelva a aprobar.", approved: true });
-    }
-
     res
       .status(200)
-      .json({ message: "Ticket aprobado y códigos enviados", approvalCodes });
+      .json({ message: "Ticket aprobado. Correo en cola.", approvalCodes: ticket.approvalCodes, emailDelivery: { status: "queued" } });
   } catch (error) {
     console.error("Error al aprobar el ticket:", error);
     res.status(error.status || 500).json({ error: error.status ? error.message : "Error al aprobar el ticket" });
@@ -697,65 +648,16 @@ app.post("/api/tickets/resend/:id", async (req, res) => {
       return res.status(400).json({ error: "El ticket aún no ha sido aprobado." });
     }
 
-    const activeRaffle = req.raffle;
-    if (!activeRaffle) {
-      return res.status(400).json({ error: "No hay una rifa activa en este momento." });
-    }
-
-    const sendSmtpEmail = {
-      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
-      to: [{ email: ticket.email, name: ticket.fullName }],
-      subject: "🎟️ Reenvío de Ticket Aprobado",
-      htmlContent: `
-        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
-          <div style="margin-bottom: 20px;">
-            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" 
-                 style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
-          </div>
-
-          <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
-          <h2 style="color: #4CAF50;">${activeRaffle.status === "closed" ? "Boletos aprobados de una rifa cerrada" : "¡Tus boletos están aprobados!"}</h2>
-
-          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
-          <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
-          <p><strong>📅 Fecha de envío:</strong> ${new Date().toLocaleDateString(
-        "es-ES",
-        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
-      )}</p>
-
-          <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
-            ${ticket.approvalCodes.map(
-        (code) => `
-              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
-                🎟️ ${code}
-              </div>
-            `
-      ).join("")}
-          </div>
-
-          <strong>${activeRaffle.status === "closed" ? "Esta rifa está cerrada. Tus números se conservan para consulta." : "Puedes comprar más y aumentar tus posibilidades de ganar. Estos números son elegidos aleatoriamente."}</strong>
-          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
-
-          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
-          <div style="justify-content: center; gap: 15px; margin: 0px;">
-            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
-            </a>
-            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
-            </a>
-            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
-              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
-            </a>
-          </div>
-        </div>
-      `,
-    };
-
-    await apiInstance.sendTransacEmail(sendSmtpEmail);
-
-    res.status(200).json({ message: "Correo reenviado exitosamente" });
+    let updated = await Ticket.findOneAndUpdate({
+      _id: ticket._id, raffleId: req.raffle._id, approved: true, rejected: { $ne: true },
+      "emailDelivery.status": { $nin: ["queued", "sending", "retrying"] },
+    }, { $set: { emailDelivery: queuedEmail() } }, { new: true }).select("emailDelivery").lean();
+    if (!updated) updated = await Ticket.findOne({ _id: ticket._id, raffleId: req.raffle._id }).select("emailDelivery").lean();
+    if (!updated) return res.status(404).json({ error: "Ticket no encontrado" });
+    res.status(200).json({
+      message: "Correo en cola. El estado se actualizará en el panel.",
+      emailDelivery: updated.emailDelivery,
+    });
   } catch (error) {
     console.error("Error al reenviar el correo:", error);
     res.status(500).json({ error: "Error al reenviar el correo" });
@@ -792,6 +694,16 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     }
 
     const updatedTicket = await withActiveRaffle(req.raffle._id, async (existingRaffle, session) => {
+    if (numberTickets === undefined && !paymentMethod && (newEmail || newPhone)) {
+      const ticket = await Ticket.findOneAndUpdate(
+        { _id: req.params.id, raffleId: existingRaffle._id, rejected: { $ne: true } },
+        { $set: { ...(newEmail ? { email: newEmail } : {}), ...(newPhone ? { phone: newPhone } : {}) }, $inc: { __v: 1 } },
+        { new: true, runValidators: true, session },
+      ).select("-voucher").lean();
+      if (ticket) return ticket;
+      const exists = await Ticket.exists({ _id: req.params.id, raffleId: existingRaffle._id }).session(session);
+      throw httpError(exists ? 409 : 404, exists ? "La compra fue rechazada." : "Ticket no encontrado en esta rifa.");
+    }
     const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: existingRaffle._id }).select("-voucher").session(session);
     if (!ticket) {
       throw httpError(404, "Ticket no encontrado en esta rifa.");
@@ -906,6 +818,21 @@ app.get("/api/tickets", async (req, res) => {
   } catch (error) {
     console.error("Error al obtener tickets:", error);
     res.status(500).json({ error: "Error al obtener los tickets" });
+  }
+});
+
+app.get("/api/tickets/email-status", async (req, res) => {
+  try {
+    const ids = typeof req.query.ids === "string" ? req.query.ids.split(",") : [];
+    if (!ids.length || ids.length > 150 || ids.some((id) => !mongoose.isValidObjectId(id))) {
+      return res.status(400).json({ error: "Se requieren entre 1 y 150 IDs válidos." });
+    }
+    const tickets = await Ticket.find({ _id: { $in: ids }, raffleId: req.raffle._id, approved: true })
+      .select("_id emailDelivery.status emailDelivery.sentAt").lean();
+    res.json({ tickets });
+  } catch (error) {
+    console.error("Error al consultar estado de correos:", error);
+    res.status(500).json({ error: "No se pudo consultar el estado de los correos." });
   }
 });
 
@@ -1066,7 +993,21 @@ if (require.main === module) {
   mongoose.connect(MONGO_URI)
     .then(() => migrateLegacyTickets())
     .then(() => Promise.all([Raffle.createIndexes(), Ticket.createIndexes(), DeletedTicket.createIndexes()]))
-    .then(() => app.listen(PORT, () => console.log(`Servidor en http://localhost:${PORT}`)))
+    .then(() => {
+      const server = app.listen(PORT, () => console.log(`Servidor en http://localhost:${PORT}`));
+      const stopEmails = startEmailWorker((email) => apiInstance.sendTransacEmail(email));
+      const shutdown = async () => {
+        await stopEmails();
+        await new Promise((resolve) => server.close(resolve));
+        await mongoose.disconnect();
+      };
+      for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
+        shutdown().catch((error) => {
+          console.error("Error al detener servidor:", error);
+          process.exitCode = 1;
+        });
+      });
+    })
     .catch(async (error) => {
       console.error("Inicio abortado:", error);
       await mongoose.disconnect();
