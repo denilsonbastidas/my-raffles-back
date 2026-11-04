@@ -9,6 +9,7 @@
 - `visible` solo controla la disponibilidad publica de una rifa activa; no significa que este cerrada.
 - Cerrar cambia `status` a `closed` y guarda `closedAt`. Primero deben aprobarse o rechazarse todas las compras pendientes.
 - No existe eliminacion de rifas. Las compras rechazadas tambien se conservan, pero no reservan numeros ni cuentan en ventas.
+- Solo se pueden eliminar compras aprobadas de una rifa activa: se retiran de ventas y consultas y se liberan sus numeros. Antes se guarda una copia completa (incluidos comprobante, numeros y fecha de eliminacion) en `deletedtickets`, dentro de la misma transaccion. Las pendientes se rechazan; los rechazados se conservan para auditoria, pero no aparecen en los listados del panel. No se pueden eliminar compras de rifas cerradas.
 - Una rifa cerrada es inmutable. Se permiten consultas y reenvios administrativos de boletos ya aprobados, usando siempre el nombre de la rifa original.
 
 ## Configuracion
@@ -59,3 +60,15 @@ Esta migracion no recupera rifas o compras que ya hayan sido eliminadas por vers
 - Todas las rutas de tickets requieren `raffleId` como query o en el cuerpo de la compra. Los IDs de ticket tambien deben pertenecer a la rifa indicada.
 - Las operaciones administrativas de rifas y tickets requieren `Authorization: Bearer <ADMIN_SECRET>`. Comprar y consultar numeros no requieren autenticacion.
 - Una aprobacion cuyo correo falla responde `502` con `approved: true`: los numeros ya estan guardados. Debe reenviarse el correo, no aprobarse otra vez.
+
+## Carga progresiva del administrador
+
+- `GET /api/admin/raffles/current`: carga solo la rifa activa mas reciente, con sus estadisticas. Acepta `raffleId` para abrir otra. Si no hay activas, devuelve la cerrada mas reciente; si no hay rifas, devuelve `raffle: null`.
+- `GET /api/admin/raffles`: devuelve solo `_id`, `name` y `status`; se consulta en segundo plano, sin descargar las imagenes de todas las rifas ni calcular sus estadisticas.
+- `GET /api/tickets?raffleId=ID`: devuelve tickets paginados **sin rechazados ni `voucher`**, con `hasVoucher`. Los indices compuestos cubren rifa, estado y orden; incluso `status=all` excluye rechazados.
+- `GET /api/tickets/:id/voucher?raffleId=ID`: descarga el comprobante solo al abrirlo. Requiere administrador y pertenencia a la rifa.
+- `PUT /api/tickets/update-contact/:id?raffleId=ID`: devuelve `ticket` actualizado sin comprobante; el panel actualiza esa fila sin recargar la tabla. Cambiar solo el contacto no consulta reservas ni tasa del dolar.
+- `DELETE /api/tickets/:id?raffleId=ID`: elimina con copia de auditoria y devuelve si era aprobado/rechazado y cuantos numeros se liberaron. Requiere confirmacion explicita en la interfaz.
+- Las consultas de capacidad suman las reservas en MongoDB, sin descargar comprobantes. Se conserva el bloqueo transaccional por rifa para coordinar compras, edicion, aprobacion, eliminacion y cierre.
+
+Desplegar backend y frontend coordinadamente para el nuevo contrato de vouchers. No se necesitan nuevas variables de entorno ni una migracion manual; los indices y la coleccion de auditoria se preparan al iniciar. Las pruebas usan 150 compras con vouchers de 100 KB y exigen una respuesta de tabla inferior a 150 KB y una reduccion mayor al 99% frente a transmitir esos vouchers.

@@ -6,7 +6,7 @@ const { MongoMemoryReplSet } = require("mongodb-memory-server");
 process.env.ADMIN_SECRET = "local-test-admin";
 process.env.BREVO_API_KEY = "local-test-email";
 const { app, apiInstance } = require("../server");
-const { Raffle, Ticket, Dollar } = require("../models");
+const { Raffle, Ticket, Dollar, DeletedTicket } = require("../models");
 const { migrateLegacyTickets } = require("../migrate");
 const { generateCodes } = require("../raffle-domain");
 
@@ -19,8 +19,12 @@ apiInstance.sendTransacEmail = async (email) => {
 
 before(async () => {
   database = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
-  await mongoose.connect(database.getUri());
-  await Promise.all([Raffle.createIndexes(), Ticket.createIndexes()]);
+  await mongoose.connect(database.getUri(), { monitorCommands: true });
+  await Promise.all([
+    Raffle.createIndexes(),
+    Ticket.createIndexes(),
+    DeletedTicket.createIndexes(),
+  ]);
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -37,6 +41,7 @@ beforeEach(async () => {
     Ticket.deleteMany({}),
     Raffle.deleteMany({}),
     Dollar.deleteMany({}),
+    DeletedTicket.deleteMany({}),
   ]);
   emails = [];
 });
@@ -264,7 +269,7 @@ test("rechazo conserva registro, libera reserva y permite cerrar sin borrar comp
   );
   assert.equal(
     (await request("GET", scoped("/tickets?status=all", raffle))).data.length,
-    1,
+    0,
   );
   assert.equal(
     (await request("POST", scoped("/raffles/close", raffle), {})).status,
@@ -579,24 +584,369 @@ test("índice único por rifa impide duplicados y migración sin rifa se detiene
     (error) => error.code === 11000,
   );
   const listing = await request("GET", scoped("/tickets?status=all", raffle));
-  assert.equal(listing.data[0].voucher, purchase.voucher);
+  assert.equal(listing.data[0].voucher, undefined);
+  assert.equal(listing.data[0].hasVoucher, true);
+  const voucher = await request(
+    "GET",
+    scoped(`/tickets/${listing.data[0]._id}/voucher`, raffle),
+  );
+  assert.equal(voucher.data.voucher, purchase.voucher);
 });
 
 test("editar y ocultar una rifa no modifica las otras", async () => {
   const first = await createRaffle("Primera");
   const second = await createRaffle("Segunda");
   const edited = await request("PUT", scoped("/raffles", second), {
-    name: "Segunda editada", ticketPrice: 9, minValue: 3,
+    name: "Segunda editada",
+    ticketPrice: 9,
+    minValue: 3,
     images: ["data:image/png;base64,dGVzdA==", "foto.jpg"],
   });
   assert.equal(edited.status, 200);
   assert.equal((await Raffle.findById(first._id)).ticketPrice, 2);
   assert.equal((await Raffle.findById(second._id)).ticketPrice, 9);
-  assert.equal((await request("POST", scoped("/raffles/toggle-visibility", second), {})).status, 200);
+  assert.equal(
+    (await request("POST", scoped("/raffles/toggle-visibility", second), {}))
+      .status,
+    200,
+  );
   await buy(first);
-  assert.equal((await request("POST", "/tickets", { ...purchase, numberTickets: 3, raffleId: second._id }, false)).status, 409);
+  assert.equal(
+    (
+      await request(
+        "POST",
+        "/tickets",
+        { ...purchase, numberTickets: 3, raffleId: second._id },
+        false,
+      )
+    ).status,
+    409,
+  );
   const list = await request("GET", "/raffles");
-  const secondData = list.data.raffles.find((raffle) => raffle._id === second._id);
+  const secondData = list.data.raffles.find(
+    (raffle) => raffle._id === second._id,
+  );
   assert.equal(secondData.images.length, 2);
   assert.ok(secondData.images[1].endsWith("/uploads/foto.jpg"));
+});
+
+test("admin inicial carga solo la rifa actual y el catálogo no contiene imágenes ni estadísticas", async () => {
+  const previous = await createRaffle("Histórica pesada");
+  await Raffle.updateOne(
+    { _id: previous._id },
+    {
+      status: "closed",
+      closedAt: new Date(),
+      images: ["data:image/png;base64," + "A".repeat(500000)],
+    },
+  );
+  const current = await createRaffle("Actual");
+  await buy(current);
+  const response = await request("GET", "/admin/raffles/current");
+  assert.equal(response.status, 200);
+  assert.equal(response.data.raffle._id, current._id);
+  assert.equal(response.data.raffle.pendingCount, 1);
+  assert.equal(response.data.raffle.totalSoldWithNoAproved, 2);
+  assert.ok(JSON.stringify(response.data).length < 2000);
+  const catalog = await request("GET", "/admin/raffles");
+  assert.equal(catalog.data.raffles.length, 2);
+  assert.ok(
+    catalog.data.raffles.every(
+      (raffle) => Object.keys(raffle).sort().join(",") === "_id,name,status",
+    ),
+  );
+  assert.ok(JSON.stringify(catalog.data).length < 1000);
+  const selected = await request(
+    "GET",
+    scoped("/admin/raffles/current", previous),
+  );
+  assert.equal(selected.data.raffle._id, previous._id);
+  assert.equal(
+    (await request("GET", "/admin/raffles/current", undefined, false)).status,
+    403,
+  );
+  assert.equal(
+    (await request("GET", "/admin/raffles", undefined, false)).status,
+    403,
+  );
+  assert.equal(
+    (await request("GET", "/admin/raffles/current?raffleId=incorrecto")).status,
+    400,
+  );
+});
+
+test("admin sin rifas y solo con rifas cerradas conserva el comportamiento", async () => {
+  assert.equal(
+    (await request("GET", "/admin/raffles/current")).data.raffle,
+    null,
+  );
+  const raffle = await createRaffle("Anterior");
+  await request("POST", scoped("/raffles/close", raffle), {});
+  assert.equal(
+    (await request("GET", "/admin/raffles/current")).data.raffle._id,
+    raffle._id,
+  );
+  assert.equal(
+    (
+      await request(
+        "GET",
+        "/admin/raffles/current?raffleId=000000000000000000000000",
+      )
+    ).status,
+    404,
+  );
+});
+
+test("150 vouchers grandes no viajan en la tabla y se descargan solo bajo demanda", async () => {
+  const raffle = await createRaffle();
+  const voucher = "data:image/png;base64," + "A".repeat(100000);
+  await Ticket.insertMany(
+    Array.from({ length: 150 }, (_, index) => ({
+      ...purchase,
+      fullName: `Cliente ${index}`,
+      raffleId: raffle._id,
+      voucher,
+    })),
+  );
+  const start = performance.now();
+  const listing = await request("GET", scoped("/tickets?status=all", raffle));
+  const bytes = Buffer.byteLength(JSON.stringify(listing.data));
+  assert.equal(listing.data.length, 150);
+  assert.ok(
+    listing.data.every((ticket) => !("voucher" in ticket) && ticket.hasVoucher),
+  );
+  assert.ok(bytes < 150000, `Tabla demasiado pesada: ${bytes} bytes`);
+  assert.ok(
+    bytes < (voucher.length * 150) / 100,
+    "Debe reducir más del 99% del peso de los vouchers",
+  );
+  console.log(
+    `Tabla de 150 compras: ${bytes} bytes en ${Math.round(performance.now() - start)} ms; vouchers excluidos: ${voucher.length * 150} bytes`,
+  );
+  const first = listing.data[0];
+  assert.equal(
+    (await request("GET", scoped(`/tickets/${first._id}/voucher`, raffle))).data
+      .voucher,
+    voucher,
+  );
+  assert.equal(
+    (
+      await request(
+        "GET",
+        scoped(`/tickets/${first._id}/voucher`, raffle),
+        undefined,
+        false,
+      )
+    ).status,
+    403,
+  );
+  const other = await createRaffle("Otra");
+  assert.equal(
+    (await request("GET", scoped(`/tickets/${first._id}/voucher`, other)))
+      .status,
+    404,
+  );
+  await Ticket.updateOne({ _id: first._id }, { $unset: { voucher: "" } });
+  assert.equal(
+    (await request("GET", scoped(`/tickets/${first._id}/voucher`, raffle)))
+      .status,
+    404,
+  );
+});
+
+test("editar contacto no recorre las reservas ni requiere tasa del dólar y devuelve solo el ticket ligero", async () => {
+  const raffle = await createRaffle();
+  const ticket = await buy(raffle);
+  await Raffle.updateOne(
+    { _id: raffle._id },
+    { minValue: 5, images: ["data:image/png;base64," + "A".repeat(500000)] },
+  );
+  await Ticket.updateOne(
+    { _id: ticket._id },
+    { voucher: "data:image/png;base64," + "A".repeat(500000) },
+  );
+  const commands = [];
+  const listener = (event) => commands.push(event.command);
+  const client = mongoose.connection.getClient();
+  client.on("commandStarted", listener);
+  let response;
+  try {
+    response = await request(
+      "PUT",
+      scoped(`/tickets/update-contact/${ticket._id}`, raffle),
+      {
+        newEmail: "nuevo@example.com",
+        newPhone: "+581112223333",
+        numberTickets: 2,
+        paymentMethod: "zelle",
+      },
+    );
+  } finally {
+    client.off("commandStarted", listener);
+  }
+  assert.equal(response.status, 200);
+  assert.equal(response.data.ticket.email, "nuevo@example.com");
+  assert.equal(response.data.ticket.amountPaid, purchase.amountPaid);
+  assert.equal(response.data.ticket.voucher, undefined);
+  assert.ok(
+    !commands.some(
+      (command) => command.aggregate || command.find === "dollars",
+    ),
+    "Editar contacto no debe consultar reservas ni tasa",
+  );
+  assert.ok(
+    commands.some(
+      (command) =>
+        command.find === "tickets" && command.projection?.voucher === 0,
+    ),
+  );
+  assert.ok(JSON.stringify(response.data).length < 2000);
+  assert.equal((await Ticket.findById(ticket._id)).voucher.length, 500022);
+});
+
+test("editar cantidades y métodos recalcula importes correctamente y exige tasa solo para bolívares", async () => {
+  const raffle = await createRaffle();
+  const ticket = await buy(raffle);
+  const update = (values) =>
+    request(
+      "PUT",
+      scoped(`/tickets/update-contact/${ticket._id}`, raffle),
+      values,
+    );
+  const dollars = await update({ numberTickets: 3, paymentMethod: "binance" });
+  assert.equal(dollars.status, 200);
+  assert.equal(dollars.data.ticket.amountPaid, "6");
+  assert.equal((await update({ paymentMethod: "BDV" })).status, 500);
+  assert.equal((await Ticket.findById(ticket._id)).paymentMethod, "binance");
+  await Dollar.create({ priceVez: "40" });
+  const bs = await update({ paymentMethod: "BDV" });
+  assert.equal(bs.status, 200);
+  assert.equal(bs.data.ticket.amountPaid, "240");
+  assert.equal(
+    (await update({ numberTickets: 4 })).data.ticket.amountPaid,
+    "320",
+  );
+  assert.equal(
+    (await update({ paymentMethod: "zelle" })).data.ticket.amountPaid,
+    "8",
+  );
+});
+
+test("eliminar compra aprobada archiva datos, libera números y afecta solo a su rifa", async () => {
+  const raffle = await createRaffle();
+  const other = await createRaffle("Otra");
+  const ticket = await buy(raffle);
+  await request("POST", scoped(`/tickets/approve/${ticket._id}`, raffle), {});
+  const saved = await Ticket.findById(ticket._id).lean();
+  assert.equal(
+    (
+      await request(
+        "DELETE",
+        scoped(`/tickets/${ticket._id}`, raffle),
+        undefined,
+        false,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await request("DELETE", scoped(`/tickets/${ticket._id}`, other))).status,
+    404,
+  );
+  const deleted = await request(
+    "DELETE",
+    scoped(`/tickets/${ticket._id}`, raffle),
+  );
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.data.releasedNumbers, 2);
+  assert.equal(await Ticket.findById(ticket._id), null);
+  const audit = await DeletedTicket.findOne({ originalTicketId: ticket._id });
+  assert.equal(String(audit.raffleId), raffle._id);
+  assert.deepEqual([...audit.ticket.approvalCodes], saved.approvalCodes);
+  assert.equal(audit.ticket.voucher, purchase.voucher);
+  assert.equal(audit.ticket.email, purchase.email);
+  assert.ok(audit.deletedAt instanceof Date);
+  assert.equal(
+    (await request("GET", scoped("/admin/raffles/current", raffle))).data.raffle
+      .totalSold,
+    0,
+  );
+  assert.equal(
+    (
+      await request(
+        "GET",
+        scoped(`/tickets/check?number=${saved.approvalCodes[0]}`, raffle),
+      )
+    ).data.sold,
+    false,
+  );
+  assert.equal(
+    (
+      await request(
+        "POST",
+        scoped("/tickets/check", raffle),
+        { email: purchase.email },
+        false,
+      )
+    ).status,
+    404,
+  );
+  await Ticket.create({
+    ...purchase,
+    raffleId: raffle._id,
+    approved: true,
+    approvalCodes: saved.approvalCodes,
+  });
+  assert.equal(
+    (await request("DELETE", scoped(`/tickets/${ticket._id}`, raffle))).status,
+    404,
+  );
+});
+
+test("pendientes se rechazan, solo aprobadas se eliminan, y borrado concurrente no duplica auditoría", async () => {
+  const raffle = await createRaffle();
+  const ticket = await buy(raffle);
+  assert.equal(
+    (await request("DELETE", scoped(`/tickets/${ticket._id}`, raffle))).status,
+    409,
+  );
+  assert.ok(await Ticket.findById(ticket._id));
+  assert.equal(await DeletedTicket.countDocuments(), 0);
+  await request("POST", scoped(`/tickets/reject/${ticket._id}`, raffle), {});
+  assert.equal(
+    (await request("DELETE", scoped(`/tickets/${ticket._id}`, raffle))).status,
+    409,
+  );
+  assert.equal(
+    (await request("GET", scoped("/tickets?status=all", raffle))).data.length,
+    0,
+  );
+  const removable = await buy(raffle);
+  await request("POST", scoped(`/tickets/approve/${removable._id}`, raffle), {});
+  const responses = await Promise.all([
+    request("DELETE", scoped(`/tickets/${removable._id}`, raffle)),
+    request("DELETE", scoped(`/tickets/${removable._id}`, raffle)),
+  ]);
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 404],
+  );
+  assert.equal(
+    await DeletedTicket.countDocuments({ originalTicketId: removable._id }),
+    1,
+  );
+  assert.equal(
+    (await request("GET", scoped("/admin/raffles/current", raffle))).data.raffle
+      .pendingCount,
+    0,
+  );
+  const approved = await buy(raffle);
+  await request("POST", scoped(`/tickets/approve/${approved._id}`, raffle), {});
+  await request("POST", scoped("/raffles/close", raffle), {});
+  assert.equal(
+    (await request("DELETE", scoped(`/tickets/${approved._id}`, raffle)))
+      .status,
+    409,
+  );
+  assert.ok(await Ticket.findById(approved._id));
 });

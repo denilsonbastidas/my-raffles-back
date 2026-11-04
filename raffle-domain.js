@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { Raffle, Ticket } = require("./models");
+const { randomInt } = require("crypto");
 
 const TOTAL_NUMBERS = 10000;
 const httpError = (status, message) =>
@@ -13,7 +14,7 @@ async function withActiveRaffle(raffleId, operation) {
         { _id: raffleId, status: "active" },
         { $inc: { revision: 1 } },
         { new: true, session },
-      );
+      ).select("-images");
       if (!raffle) throw httpError(409, "La rifa está cerrada o no existe.");
       return operation(raffle, session);
     });
@@ -23,17 +24,32 @@ async function withActiveRaffle(raffleId, operation) {
 }
 
 async function reservedCount(raffleId, session, excludeId) {
-  const tickets = await Ticket.find({
-    raffleId,
-    rejected: { $ne: true },
-    ...(excludeId ? { _id: { $ne: excludeId } } : {}),
-  }).session(session);
-  return tickets.reduce(
-    (sum, ticket) =>
-      sum +
-      (ticket.approved ? ticket.approvalCodes.length : ticket.numberTickets),
-    0,
-  );
+  const [result] = await Ticket.aggregate([
+    {
+      $match: {
+        raffleId: new mongoose.Types.ObjectId(String(raffleId)),
+        rejected: { $ne: true },
+        ...(excludeId
+          ? { _id: { $ne: new mongoose.Types.ObjectId(String(excludeId)) } }
+          : {}),
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: {
+          $sum: {
+            $cond: [
+              "$approved",
+              { $size: { $ifNull: ["$approvalCodes", []] } },
+              "$numberTickets",
+            ],
+          },
+        },
+      },
+    },
+  ]).session(session);
+  return result?.total || 0;
 }
 
 function generateCodes(count, existing) {
@@ -49,8 +65,8 @@ function generateCodes(count, existing) {
     const code = String(number).padStart(4, "0");
     if (!existing.has(code)) available.push(code);
   }
-  for (let i = available.length - 1; i > 0; i--) {
-    const j = require("crypto").randomInt(i + 1);
+  for (let i = 0; i < count; i++) {
+    const j = randomInt(i, available.length);
     [available[i], available[j]] = [available[j], available[i]];
   }
   return available.slice(0, count);

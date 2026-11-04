@@ -42,7 +42,7 @@ const MONGO_URI =
   process.env.MONGO_URI ||
   "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
 
-const { Raffle, Ticket, Dollar } = require("./models");
+const { Raffle, Ticket, Dollar, DeletedTicket } = require("./models");
 const { migrateLegacyTickets } = require("./migrate");
 const { TOTAL_NUMBERS, httpError, withActiveRaffle, reservedCount, generateCodes } = require("./raffle-domain");
 
@@ -52,11 +52,11 @@ const isAdmin = (req) => Boolean(process.env.ADMIN_SECRET) &&
 app.use("/api", (req, res, next) => {
   const raffleMutation = req.path.startsWith("/raffles") && req.method !== "GET";
   const ticketAdministration = req.path.startsWith("/tickets") && (
-    req.method === "PUT" ||
+    req.method === "PUT" || req.method === "DELETE" ||
     (req.method === "POST" && !["/tickets", "/tickets/check"].includes(req.path)) ||
-    (req.method === "GET" && (req.path === "/tickets" || req.path === "/tickets/summary" || req.path.startsWith("/tickets/top-buyers/")))
+    (req.method === "GET" && (req.path === "/tickets" || req.path === "/tickets/summary" || req.path.endsWith("/voucher") || req.path.startsWith("/tickets/top-buyers/")))
   );
-  if ((raffleMutation || ticketAdministration) && !isAdmin(req)) {
+  if ((raffleMutation || ticketAdministration || req.path.startsWith("/admin/raffles")) && !isAdmin(req)) {
     return res.status(403).json({ error: "Se requiere acceso de administrador." });
   }
   const needsRaffleId = raffleMutation && req.method !== "DELETE" &&
@@ -75,7 +75,7 @@ app.use("/api/tickets", async (req, res, next) => {
     if (typeof id !== "string" || !mongoose.isValidObjectId(id)) {
       return res.status(400).json({ error: "Se requiere un raffleId válido." });
     }
-    const raffle = await Raffle.findById(id);
+    const raffle = await Raffle.findById(id).select("-images").lean();
     if (!raffle) return res.status(404).json({ error: "Rifa no encontrada." });
     req.raffle = raffle;
     next();
@@ -255,6 +255,58 @@ app.post("/api/raffles/toggle-visibility", async (req, res) => {
   }
 });
 
+async function raffleStats(raffleId) {
+  const [stats] = await Ticket.aggregate([
+    { $match: { raffleId, rejected: { $ne: true } } },
+    { $group: {
+      _id: null,
+      totalSold: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, 0] } },
+      totalSoldWithNoAproved: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, "$numberTickets"] } },
+      pendingCount: { $sum: { $cond: ["$approved", 0, 1] } },
+    } },
+  ]);
+  return {
+    totalSold: stats?.totalSold || 0,
+    totalSoldWithNoAproved: stats?.totalSoldWithNoAproved || 0,
+    pendingCount: stats?.pendingCount || 0,
+  };
+}
+
+app.get("/api/admin/raffles/current", async (req, res) => {
+  try {
+    const { raffleId } = req.query;
+    if (raffleId !== undefined && (typeof raffleId !== "string" || !mongoose.isValidObjectId(raffleId))) {
+      return res.status(400).json({ error: "raffleId inválido." });
+    }
+    let raffle = raffleId
+      ? await Raffle.findById(raffleId).lean()
+      : await Raffle.findOne({ status: "active" }).sort({ createdAt: -1, _id: -1 }).lean();
+    if (!raffle && !raffleId) raffle = await Raffle.findOne().sort({ closedAt: -1, _id: -1 }).lean();
+    if (!raffle) return raffleId
+      ? res.status(404).json({ error: "Rifa no encontrada." })
+      : res.json({ raffle: null });
+    res.json({ raffle: {
+      ...raffle,
+      images: raffle.images.map((image) => imageUrl(req, image)),
+      ticketPrice: String(raffle.ticketPrice),
+      ...await raffleStats(raffle._id),
+    } });
+  } catch (error) {
+    console.error("Error al cargar la rifa seleccionada:", error);
+    res.status(500).json({ error: "No se pudo cargar la rifa seleccionada." });
+  }
+});
+
+app.get("/api/admin/raffles", async (req, res) => {
+  try {
+    const raffles = await Raffle.find().select("_id name status").sort({ createdAt: -1, _id: -1 }).lean();
+    res.json({ raffles });
+  } catch (error) {
+    console.error("Error al cargar catálogo de rifas:", error);
+    res.status(500).json({ error: "No se pudo cargar el catálogo de rifas." });
+  }
+});
+
 // 📌 Endpoint para obtener rifa actual
 app.get("/api/raffles", async (req, res) => {
   try {
@@ -412,10 +464,10 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
   try {
     const activeRaffle = req.raffle;
     const ticket = await withActiveRaffle(activeRaffle._id, async (raffle, session) => {
-      const purchase = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).session(session);
+      const purchase = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).select("-voucher").session(session);
       if (!purchase) throw httpError(404, "Ticket no encontrado en esta rifa.");
       if (purchase.approved || purchase.rejected) throw httpError(409, "Esta compra ya fue procesada.");
-      const existing = await Ticket.find({ raffleId: raffle._id, approved: true }).session(session);
+      const existing = await Ticket.find({ raffleId: raffle._id, approved: true }).select("approvalCodes").lean().session(session);
       purchase.approvalCodes = generateCodes(purchase.numberTickets, new Set(existing.flatMap((item) => item.approvalCodes)));
       purchase.approved = true;
       purchase.approvedAt = new Date();
@@ -494,7 +546,7 @@ app.post("/api/tickets/approve/:id", async (req, res) => {
 app.post("/api/tickets/reject/:id", async (req, res) => {
   try {
     await withActiveRaffle(req.raffle._id, async (raffle, session) => {
-      const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).session(session);
+      const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).select("-voucher").session(session);
       if (!ticket) throw httpError(404, "Ticket no encontrado en esta rifa.");
       if (ticket.approved || ticket.rejected) throw httpError(409, "Esta compra ya fue procesada.");
       ticket.rejected = true;
@@ -638,7 +690,7 @@ app.get("/api/tickets/summary", async (req, res) => {
 // 📌 Endpoint para reenviar el ticket aprobado por correo
 app.post("/api/tickets/resend/:id", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: req.raffle._id });
+    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: req.raffle._id }).select("-voucher").lean();
     if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
     if (!ticket.approved) {
@@ -739,8 +791,8 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
         .json({ error: "Método de pago inválido. Permitidos: zelle, binance, BDV" });
     }
 
-    await withActiveRaffle(req.raffle._id, async (existingRaffle, session) => {
-    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: existingRaffle._id }).session(session);
+    const updatedTicket = await withActiveRaffle(req.raffle._id, async (existingRaffle, session) => {
+    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: existingRaffle._id }).select("-voucher").session(session);
     if (!ticket) {
       throw httpError(404, "Ticket no encontrado en esta rifa.");
     }
@@ -748,28 +800,25 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     if (ticket.approved && numberTickets !== undefined && numberTickets !== ticket.numberTickets) {
       throw httpError(409, "No se puede cambiar la cantidad de una compra aprobada.");
     }
-    if (numberTickets !== undefined && (!Number.isInteger(numberTickets) || numberTickets < existingRaffle.minValue || numberTickets > 200)) {
+    const quantityChanged = numberTickets !== undefined && numberTickets !== ticket.numberTickets;
+    if (quantityChanged && (!Number.isInteger(numberTickets) || numberTickets < existingRaffle.minValue || numberTickets > 200)) {
       throw httpError(400, "Cantidad de tickets inválida.");
     }
-    if (!ticket.approved && numberTickets !== undefined && await reservedCount(existingRaffle._id, session, ticket._id) + numberTickets > TOTAL_NUMBERS) {
+    if (!ticket.approved && quantityChanged && await reservedCount(existingRaffle._id, session, ticket._id) + numberTickets > TOTAL_NUMBERS) {
       throw httpError(409, "No quedan suficientes números disponibles.");
     }
 
-    const responseParallelDollar = await Dollar.findOne().session(session);
-
-    if (!responseParallelDollar || !parseFloat(responseParallelDollar.priceVez)) {
-      throw httpError(500, "No se encontró el precio del dólar");
-    }
-
-    if (!existingRaffle || !parseFloat(existingRaffle.ticketPrice)) {
-      throw httpError(500, "No se encontró el sorteo o el precio del ticket");
-    }
-
-    const dollarPrice = parseFloat(responseParallelDollar.priceVez);
     const ticketPriceUSD = parseFloat(existingRaffle.ticketPrice);
 
     const oldPaymentMethod = ticket.paymentMethod;
     const newPaymentMethod = paymentMethod || oldPaymentMethod;
+    let dollarPrice;
+    if ((quantityChanged || oldPaymentMethod !== newPaymentMethod) &&
+        (oldPaymentMethod === "BDV" || newPaymentMethod === "BDV")) {
+      const dollar = await Dollar.findOne().select("priceVez").lean().session(session);
+      dollarPrice = Number(dollar?.priceVez);
+      if (!Number.isFinite(dollarPrice) || dollarPrice <= 0) throw httpError(500, "No se encontró el precio del dólar");
+    }
 
     let recalculatedUSD = null;
 
@@ -813,10 +862,12 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     if (newPhone) ticket.phone = newPhone;
 
     await ticket.save({ session });
+    return ticket.toObject();
     });
 
     res.status(200).json({
       message: "Datos de contacto actualizados correctamente",
+      ticket: updatedTicket,
     });
   } catch (error) {
     console.error("Error al actualizar los datos de contacto:", error);
@@ -831,7 +882,7 @@ app.get("/api/tickets", async (req, res) => {
     const limit = parseInt(numbertoshow, 10);
     const skip = (pageNumber - 1) * limit;
 
-    let filter = { raffleId: req.raffle._id, ...(status === "all" ? {} : { approved: false, rejected: { $ne: true } }) };
+    let filter = { raffleId: req.raffle._id, rejected: { $ne: true }, ...(status === "all" ? {} : { approved: false }) };
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || !Number.isInteger(limit) || limit < 1 || limit > 150) {
       return res.status(400).json({ error: "Paginación inválida." });
     }
@@ -847,17 +898,45 @@ app.get("/api/tickets", async (req, res) => {
       { $sort: { _id: sortOrder } },
       { $skip: skip },
       { $limit: limit },
+      { $addFields: { hasVoucher: { $ne: [{ $ifNull: ["$voucher", ""] }, ""] } } },
+      { $project: { voucher: 0 } },
     ]);
 
-    const ticketsWithImageURL = tickets.map((ticket) => ({
-      ...ticket,
-      voucher: imageUrl(req, ticket.voucher),
-    }));
-
-    res.json(ticketsWithImageURL);
+    res.json(tickets);
   } catch (error) {
     console.error("Error al obtener tickets:", error);
     res.status(500).json({ error: "Error al obtener los tickets" });
+  }
+});
+
+app.get("/api/tickets/:id/voucher", async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: req.raffle._id }).select("voucher").lean();
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado en esta rifa." });
+    if (!ticket.voucher) return res.status(404).json({ error: "Esta compra no tiene comprobante." });
+    res.json({ voucher: imageUrl(req, ticket.voucher) });
+  } catch (error) {
+    console.error("Error al cargar comprobante:", error);
+    res.status(500).json({ error: "No se pudo cargar el comprobante." });
+  }
+});
+
+app.delete("/api/tickets/:id", async (req, res) => {
+  try {
+    const deleted = await withActiveRaffle(req.raffle._id, async (raffle, session) => {
+      const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).session(session);
+      if (!ticket) throw httpError(404, "Ticket no encontrado en esta rifa.");
+      if (!ticket.approved || ticket.rejected) throw httpError(409, "Solo se pueden eliminar compras aprobadas. Para las pendientes use Rechazar.");
+      await DeletedTicket.create([{
+        raffleId: raffle._id, originalTicketId: ticket._id, ticket: ticket.toObject(),
+      }], { session });
+      await Ticket.deleteOne({ _id: ticket._id, raffleId: raffle._id }).session(session);
+      return { approved: ticket.approved, rejected: ticket.rejected, releasedNumbers: ticket.approvalCodes.length };
+    });
+    res.json({ message: "Ticket eliminado. Se conservó una copia de auditoría.", ...deleted });
+  } catch (error) {
+    console.error("Error al eliminar ticket:", error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : "No se pudo eliminar el ticket." });
   }
 });
 
@@ -986,7 +1065,7 @@ app.use("/uploads", express.static("uploads"));
 if (require.main === module) {
   mongoose.connect(MONGO_URI)
     .then(() => migrateLegacyTickets())
-    .then(() => Promise.all([Raffle.createIndexes(), Ticket.createIndexes()]))
+    .then(() => Promise.all([Raffle.createIndexes(), Ticket.createIndexes(), DeletedTicket.createIndexes()]))
     .then(() => app.listen(PORT, () => console.log(`Servidor en http://localhost:${PORT}`)))
     .catch(async (error) => {
       console.error("Inicio abortado:", error);
