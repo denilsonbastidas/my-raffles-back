@@ -33,7 +33,7 @@ La primera ejecucion puede descargar el binario de MongoDB.
 
 1. Hacer una copia de seguridad de MongoDB y detener temporalmente las compras. No ejecutar dos versiones del backend durante la migracion.
 2. Desplegar backend y frontend de forma coordinada: las peticiones antiguas sin `raffleId` ya no son validas.
-   Si el despliegue estaba conectado a `master`, cambiar la rama del servicio Railway y la rama de produccion Vercel a `main`. Este cambio en las plataformas no lo hace `git push`.
+   Conservar `master` como rama del servicio Railway y rama de produccion Vercel. No es necesario cambiar de rama para esta actualizacion.
    Railway: instalar con `npm ci --omit=dev` e iniciar con `npm start`; no ejecutar las pruebas contra produccion.
    Vercel: configurar `VITE_API_URL` con la URL publica HTTPS del backend (sin `/api` ni barra final), instalar con `npm ci`, compilar con `npm run build` y publicar `dist`. Cualquier cambio de `VITE_API_URL` requiere un nuevo build.
 3. Al iniciar, el backend asigna las compras antiguas sin `raffleId` a la unica rifa existente y marca las rifas antiguas sin estado como activas. No altera numeros, fechas, comprobantes ni pagos.
