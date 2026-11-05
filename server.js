@@ -42,60 +42,54 @@ const MONGO_URI =
   process.env.MONGO_URI ||
   "mongodb+srv://rifasdenilsonbastidas:x6PmHulZV28FjKfz@clusterrifas.oi7nx.mongodb.net/";
 
-const { Raffle, Ticket, Dollar, DeletedTicket } = require("./models");
-const { migrateLegacyTickets } = require("./migrate");
-const { TOTAL_NUMBERS, httpError, withActiveRaffle, reservedCount, generateCodes } = require("./raffle-domain");
-const { queuedEmail, startEmailWorker } = require("./ticket-email");
-
-const isAdmin = (req) => Boolean(process.env.ADMIN_SECRET) &&
-  req.get("Authorization") === `Bearer ${process.env.ADMIN_SECRET}`;
-
-app.use("/api", (req, res, next) => {
-  const raffleMutation = req.path.startsWith("/raffles") && req.method !== "GET";
-  const ticketAdministration = req.path.startsWith("/tickets") && (
-    req.method === "PUT" || req.method === "DELETE" ||
-    (req.method === "POST" && !["/tickets", "/tickets/check"].includes(req.path)) ||
-    (req.method === "GET" && (req.path === "/tickets" || req.path === "/tickets/summary" || req.path === "/tickets/email-status" || req.path.endsWith("/voucher") || req.path.startsWith("/tickets/top-buyers/")))
-  );
-  if ((raffleMutation || ticketAdministration || req.path.startsWith("/admin/raffles")) && !isAdmin(req)) {
-    return res.status(403).json({ error: "Se requiere acceso de administrador." });
-  }
-  const needsRaffleId = raffleMutation && req.method !== "DELETE" &&
-    (req.path !== "/raffles" || req.method === "PUT");
-  if (needsRaffleId) {
-    if (typeof req.query.raffleId !== "string" || !mongoose.isValidObjectId(req.query.raffleId)) {
-      return res.status(400).json({ error: "Se requiere un raffleId válido." });
-    }
-  }
-  next();
+const TicketSchema = new mongoose.Schema({
+  numberTickets: Number,
+  fullName: String,
+  email: String,
+  phone: String,
+  reference: String,
+  paymentMethod: String,
+  amountPaid: String,
+  voucher: String,
+  createdAt: { type: Date, default: Date.now },
+  approved: { type: Boolean, default: false },
+  approvalCodes: [String],
 });
 
-app.use("/api/tickets", async (req, res, next) => {
-  try {
-    const id = req.query.raffleId || req.body.raffleId;
-    if (typeof id !== "string" || !mongoose.isValidObjectId(id)) {
-      return res.status(400).json({ error: "Se requiere un raffleId válido." });
-    }
-    // These mutations validate and lock the raffle inside their transaction.
-    if ((req.method === "POST" && /^\/(approve|reject)\/[^/]+$/.test(req.path)) ||
-        (req.method === "PUT" && /^\/update-contact\/[^/]+$/.test(req.path)) ||
-        (req.method === "DELETE" && /^\/[^/]+$/.test(req.path))) {
-      req.raffle = { _id: new mongoose.Types.ObjectId(id) };
-      return next();
-    }
-    const raffle = await Raffle.findById(id).select("-images").lean();
-    if (!raffle) return res.status(404).json({ error: "Rifa no encontrada." });
-    req.raffle = raffle;
-    next();
-  } catch (error) {
-    console.error("Error al seleccionar rifa:", error);
-    res.status(500).json({ error: "No se pudo seleccionar la rifa." });
-  }
+// Older rejection deleted the purchase; migrated rejected records must stay hidden.
+TicketSchema.pre(/^find/, function () {
+  this.where({ rejected: { $ne: true } });
 });
+TicketSchema.pre("aggregate", function () {
+  this.pipeline().unshift({ $match: { rejected: { $ne: true } } });
+});
+
+const RaffleSchema = new mongoose.Schema({
+  name: String,
+  description: String,
+  ticketPrice: Number,
+  images: [String],
+  visible: { type: Boolean, default: true },
+  minValue: Number,
+  prizes: [
+    {
+      title: String,
+      amount: String,
+    },
+  ],
+  createdAt: { type: Date, default: Date.now },
+});
+
+const DollarPriceSchema = new mongoose.Schema({
+  priceVez: String
+});
+
+const Raffle = mongoose.model("Raffle", RaffleSchema);
+const Ticket = mongoose.model("Ticket", TicketSchema);
+const Dollar = mongoose.model("Dollar", DollarPriceSchema);
 
 const SibApiV3Sdk = require("sib-api-v3-sdk");
 let defaultClient = SibApiV3Sdk.ApiClient.instance;
-defaultClient.timeout = 20000;
 let apiKey = defaultClient.authentications["api-key"];
 apiKey.apiKey = process.env.BREVO_API_KEY;
 const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
@@ -111,17 +105,58 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-function imageUrl(req, value) {
-  if (!value) return null;
-  if (value.includes("/uploads/data:")) return value.split("/uploads/")[1];
-  if (/^(data:|https?:\/\/)/.test(value)) return value;
-  return `${req.protocol}://${req.get("host")}/uploads/${value.replace(/^\/?uploads\//, "")}`;
-}
+const generateApprovalCodes = async (count) => {
+  let codes = new Set();
 
-app.param("id", (req, res, next, id) => {
-  if (!mongoose.isValidObjectId(id)) return res.status(400).json({ error: "ID inválido." });
-  next();
-});
+  const existingCodes = new Set(
+    (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+      (ticket) => ticket.approvalCodes
+    )
+  );
+
+  const preferredCode = "7777";
+
+  // Incluir "XXXX" si aún no ha sido usado antes
+  const needsPreferredCode = !existingCodes.has(preferredCode);
+
+  if (needsPreferredCode) {
+    codes.add(preferredCode);
+  }
+
+  while (codes.size < count) {
+    let code = Math.floor(Math.random() * 10000)
+      .toString()
+      .padStart(4, "0");
+
+    if (!codes.has(code) && !existingCodes.has(code)) {
+      codes.add(code);
+    }
+  }
+
+  return Array.from(codes);
+};
+
+// const generateApprovalCodes = async (count) => {
+//   let codes = new Set();
+
+//   const existingCodes = new Set(
+//     (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+//       (ticket) => ticket.approvalCodes
+//     )
+//   );
+
+//   while (codes.size < count) {
+//     let code = Math.floor(Math.random() * 10000)
+//       .toString()
+//       .padStart(4, "0");
+
+//     if (!codes.has(code) && !existingCodes.has(code)) {
+//       codes.add(code);
+//     }
+//   }
+
+//   return Array.from(codes);
+// };
 
 app.put("/api/dollar", async (req, res) => {
   try {
@@ -166,6 +201,13 @@ app.get("/api/dollar", async (req, res) => {
 // 📌 Endpoint para crear una rifa con imágenes
 app.post("/api/raffles", async (req, res) => {
   try {
+    const existingRaffle = await Raffle.findOne();
+    if (existingRaffle) {
+      return res
+        .status(400)
+        .json({ error: "Ya existe una rifa activa. No se pueden crear más." });
+    }
+
     const { name, description, minValue, images, prizes } = req.body;
     let ticketPrice = parseFloat(req.body.ticketPrice);
 
@@ -195,7 +237,7 @@ app.post("/api/raffles", async (req, res) => {
       .json({ message: "Rifa creada exitosamente", raffle: newRaffle });
   } catch (error) {
     console.error("Error al crear la rifa:", error);
-    res.status(error.name === "ValidationError" ? 400 : 500).json({ error: error.name === "ValidationError" ? "Revise el nombre, precio y mínimo de boletos de la rifa." : "Error al crear la rifa" });
+    res.status(500).json({ error: "Error al crear la rifa" });
   }
 });
 
@@ -203,13 +245,18 @@ app.put("/api/raffles", async (req, res) => {
   try {
     const { name, description, ticketPrice, images, minValue, visible, prizes } = req.body;
 
+    let raffle = await Raffle.findOne();
+
+    if (!raffle) {
+      return res.status(404).json({ error: "No existe ninguna rifa para actualizar." });
+    }
+
     if (images && (!Array.isArray(images) || images.some((img) => typeof img !== "string"))) {
       return res.status(400).json({
         error: "Las imágenes deben enviarse como un array de strings en Base64.",
       });
     }
 
-    const updated = await withActiveRaffle(req.query.raffleId, async (raffle, session) => {
     if (name !== undefined) raffle.name = name;
     if (description !== undefined) raffle.description = description;
     if (ticketPrice !== undefined) raffle.ticketPrice = parseFloat(ticketPrice);
@@ -218,123 +265,89 @@ app.put("/api/raffles", async (req, res) => {
     if (images !== undefined) raffle.images = images;
     if (prizes !== undefined) raffle.prizes = Array.isArray(prizes) ? prizes : [];
 
-    await raffle.save({ session });
-    return raffle;
-    });
+    await raffle.save();
 
-    res.json({ message: "Rifa actualizada exitosamente", raffle: updated });
+    res.json({ message: "Rifa actualizada exitosamente", raffle });
   } catch (error) {
     console.error("❌ Error al actualizar la rifa:", error);
-    res.status(error.status || (error.name === "ValidationError" ? 400 : 500)).json({ error: error.status ? error.message : "Revise los datos de la rifa." });
+    res.status(500).json({ error: "Error al actualizar la rifa" });
   }
 });
 
 
-// Cerrar conserva las compras y bloquea nuevas modificaciones.
-app.post("/api/raffles/close", async (req, res) => {
+// 📌 Endpoint para eliminar la rifa actual
+app.delete("/api/raffles", async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.query.raffleId)) return res.status(400).json({ error: "raffleId inválido." });
-    await withActiveRaffle(req.query.raffleId, async (raffle, session) => {
-      const pending = await Ticket.exists({ raffleId: raffle._id, approved: false, rejected: { $ne: true } }).session(session);
-      if (pending) throw httpError(409, "Resuelva las compras pendientes antes de cerrar la rifa.");
-      raffle.status = "closed";
-      raffle.closedAt = new Date();
-      await raffle.save({ session });
-    });
-    res.json({ message: "Rifa cerrada. Se conserva todo su historial." });
+    const existingRaffle = await Raffle.findOne();
+    if (!existingRaffle) {
+      return res
+        .status(404)
+        .json({ error: "No hay una rifa activa para eliminar." });
+    }
+
+    await Ticket.deleteMany({});
+    await Raffle.deleteOne({ _id: existingRaffle._id });
+
+    res.status(200).json({ message: "Rifa eliminada exitosamente" });
   } catch (error) {
-    console.error("Error al cerrar la rifa:", error);
-    res.status(error.status || 500).json({ error: error.message });
+    console.error("Error al eliminar la rifa:", error);
+    res.status(500).json({ error: "Error al eliminar la rifa" });
   }
 });
 
 // cambiar el estado actual de la rifa (mostrar/ocultar)
 app.post("/api/raffles/toggle-visibility", async (req, res) => {
   try {
-    const updated = await withActiveRaffle(req.query.raffleId, async (raffle, session) => {
-    raffle.visible = !raffle.visible;
-    await raffle.save({ session });
-    return raffle;
-    });
+    const raffle = await Raffle.findOne();
+    if (!raffle) {
+      return res.status(404).json({ error: "No hay rifa activa" });
+    }
 
-    res.json({ message: "Estado actualizado", visible: updated.visible });
+    raffle.visible = !raffle.visible;
+    await raffle.save();
+
+    res.json({ message: "Estado actualizado", visible: raffle.visible });
   } catch (error) {
     console.error("Error al cambiar visibilidad de la rifa:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "Error al actualizar la visibilidad" });
-  }
-});
-
-async function raffleStats(raffleId) {
-  const [stats] = await Ticket.aggregate([
-    { $match: { raffleId, rejected: { $ne: true } } },
-    { $group: {
-      _id: null,
-      totalSold: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, 0] } },
-      totalSoldWithNoAproved: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, "$numberTickets"] } },
-      pendingCount: { $sum: { $cond: ["$approved", 0, 1] } },
-    } },
-  ]);
-  return {
-    totalSold: stats?.totalSold || 0,
-    totalSoldWithNoAproved: stats?.totalSoldWithNoAproved || 0,
-    pendingCount: stats?.pendingCount || 0,
-  };
-}
-
-app.get("/api/admin/raffles/current", async (req, res) => {
-  try {
-    const { raffleId } = req.query;
-    if (raffleId !== undefined && (typeof raffleId !== "string" || !mongoose.isValidObjectId(raffleId))) {
-      return res.status(400).json({ error: "raffleId inválido." });
-    }
-    let raffle = raffleId
-      ? await Raffle.findById(raffleId).lean()
-      : await Raffle.findOne({ status: "active" }).sort({ createdAt: -1, _id: -1 }).lean();
-    if (!raffle && !raffleId) raffle = await Raffle.findOne().sort({ closedAt: -1, _id: -1 }).lean();
-    if (!raffle) return raffleId
-      ? res.status(404).json({ error: "Rifa no encontrada." })
-      : res.json({ raffle: null });
-    res.json({ raffle: {
-      ...raffle,
-      images: raffle.images.map((image) => imageUrl(req, image)),
-      ticketPrice: String(raffle.ticketPrice),
-      ...await raffleStats(raffle._id),
-    } });
-  } catch (error) {
-    console.error("Error al cargar la rifa seleccionada:", error);
-    res.status(500).json({ error: "No se pudo cargar la rifa seleccionada." });
-  }
-});
-
-app.get("/api/admin/raffles", async (req, res) => {
-  try {
-    const raffles = await Raffle.find().select("_id name status").sort({ createdAt: -1, _id: -1 }).lean();
-    res.json({ raffles });
-  } catch (error) {
-    console.error("Error al cargar catálogo de rifas:", error);
-    res.status(500).json({ error: "No se pudo cargar el catálogo de rifas." });
+    res.status(500).json({ error: "Error al actualizar la visibilidad" });
   }
 });
 
 // 📌 Endpoint para obtener rifa actual
 app.get("/api/raffles", async (req, res) => {
   try {
-    const raffles = await Raffle.find(isAdmin(req) ? {} : { $or: [{ visible: true }, { status: "closed" }] }).sort({ closedAt: -1, createdAt: -1, _id: -1 }).lean();
-    const totals = await Ticket.aggregate([
-      { $match: { rejected: { $ne: true } } },
-      { $group: {
-        _id: "$raffleId",
-        totalSold: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, 0] } },
-        totalSoldWithNoAproved: { $sum: { $cond: ["$approved", { $size: { $ifNull: ["$approvalCodes", []] } }, "$numberTickets"] } },
-      } },
-    ]);
-    res.json({ raffles: raffles.map((raffle) => ({
-      ...raffle,
-      images: raffle.images.map((image) => imageUrl(req, image)),
-      ticketPrice: String(raffle.ticketPrice),
-      totalSold: totals.find((item) => String(item._id) === String(raffle._id))?.totalSold || 0,
-      totalSoldWithNoAproved: totals.find((item) => String(item._id) === String(raffle._id))?.totalSoldWithNoAproved || 0,
-    })) });
+    const raffles = await Raffle.find();
+
+    const updatedRaffles = raffles.map((raffle) => ({
+      ...raffle._doc,
+      images: raffle.images.map(
+        (img) => `${req.protocol}://${req.get("host")}/uploads/${img}`
+      ),
+    }));
+
+    const soldNumbers = await Ticket.find(
+      { approved: true },
+      { approvalCodes: 1 }
+    );
+
+    const allSoldNumbers = soldNumbers.flatMap(
+      (ticket) => ticket.approvalCodes
+    );
+
+    const allTickets = await Ticket.find();
+    const totalSoldWithNoAproved = allTickets.reduce((acc, ticket) => {
+      if (ticket.approved) {
+        return acc + ticket.approvalCodes.length;
+      } else {
+        return acc + (ticket.numberTickets || 0);
+      }
+    }, 0);
+
+    res.json({
+      ...updatedRaffles,
+      totalSold: allSoldNumbers.length,
+      totalSoldWithNoAproved
+    });
   } catch (error) {
     console.error("Error al obtener rifas:", error);
     res.status(500).json({ error: "Error al obtener rifas" });
@@ -355,16 +368,14 @@ app.post("/api/tickets", async (req, res) => {
       voucher,
     } = req.body;
 
-    const newTicket = await withActiveRaffle(req.raffle._id, async (activeRaffle, session) => {
-      if (!activeRaffle.visible) throw httpError(409, "La rifa no está disponible para compras.");
-      if (!Number.isInteger(numberTickets) || numberTickets < activeRaffle.minValue || numberTickets > 200) {
-        throw httpError(400, `La cantidad debe ser un entero entre ${activeRaffle.minValue} y 200.`);
-      }
-      if (await reservedCount(activeRaffle._id, session) + numberTickets > TOTAL_NUMBERS) {
-        throw httpError(409, "No quedan suficientes números disponibles.");
-      }
-      const ticket = new Ticket({
-      raffleId: activeRaffle._id,
+    const activeRaffle = await Raffle.findOne();
+    if (!activeRaffle) {
+      return res
+        .status(400)
+        .json({ error: "No hay una rifa activa en este momento." });
+    }
+
+    const newTicket = new Ticket({
       numberTickets,
       fullName,
       email,
@@ -373,10 +384,8 @@ app.post("/api/tickets", async (req, res) => {
       paymentMethod,
       amountPaid,
       voucher,
-      });
-      await ticket.save({ session });
-      return ticket;
     });
+    await newTicket.save();
 
     // const mailOptions = {
     //   from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
@@ -464,50 +473,109 @@ app.post("/api/tickets", async (req, res) => {
       .json({ message: "Ticket creado exitosamente", ticket: newTicket });
   } catch (error) {
     console.error("Error al crear el ticket:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "Error al crear el ticket" });
+    res.status(500).json({ error: "Error al crear el ticket" });
   }
 });
 
-// 📌 Aprueba y guarda el correo pendiente en la misma transacción.
+// 📌 Endpoint para aprobar el ticket y enviar códigos por correo
 app.post("/api/tickets/approve/:id", async (req, res) => {
   try {
-    const activeRaffle = req.raffle;
-    const ticket = await withActiveRaffle(activeRaffle._id, async (raffle, session) => {
-      const purchase = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).select("-voucher").session(session);
-      if (!purchase) throw httpError(404, "Ticket no encontrado en esta rifa.");
-      if (purchase.approved || purchase.rejected) throw httpError(409, "Esta compra ya fue procesada.");
-      const existing = await Ticket.find({ raffleId: raffle._id, approved: true }).select("approvalCodes").lean().session(session);
-      purchase.approvalCodes = generateCodes(purchase.numberTickets, new Set(existing.flatMap((item) => item.approvalCodes)));
-      purchase.approved = true;
-      purchase.approvedAt = new Date();
-      purchase.emailDelivery = queuedEmail();
-      await purchase.save({ session });
-      return purchase;
-    });
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
+
+    const existingCodes = new Set(
+      (await Ticket.find({}, { approvalCodes: 1 })).flatMap(
+        (t) => t.approvalCodes
+      )
+    );
+
+    const activeRaffle = await Raffle.findOne();
+    if (!activeRaffle) {
+      return res
+        .status(400)
+        .json({ error: "No hay una rifa activa en este momento." });
+    }
+
+    if (existingCodes.size + ticket.numberTickets > process.env.MAX_CODES) {
+      return res.status(400).json({ error: "No quedan números disponibles" });
+    }
+
+    const approvalCodes = await generateApprovalCodes(ticket.numberTickets);
+    ticket.approved = true;
+    ticket.approvalCodes = approvalCodes;
+    await ticket.save();
+
+    const sendSmtpEmail = {
+      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
+      to: [{ email: ticket.email, name: ticket.fullName }],
+      subject: "🎟️ ¡TU COMPRA HA SIDO CONFIRMADA!",
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+          <div style="margin-bottom: 20px;">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+
+          <p>Holaa ${ticket?.fullName}, ¡Gracias por tu compra! ${activeRaffle.name} 🎉</p>
+          <h2 style="color: #4CAF50;">✅ ¡Felicidades tus tickets han sido aprobados!</h2>
+
+          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
+          <p><strong>📧 Correo asociado:</strong> ${ticket?.email}</p>
+          <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
+        "es-ES",
+        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+      )}</p>
+
+          <p>Ticket(s) comprado(s) (${approvalCodes.length}):</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
+            ${approvalCodes.map(
+        (code) => `
+              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
+                🎟️ ${code}
+              </div>
+            `
+      ).join("")}
+          </div>
+
+          <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
+          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+
+          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+          <div style=" justify-content: center; gap: 15px; margin: 0px;">
+            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
+            </a>
+            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
+            </a>
+            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
+            </a>
+          </div>
+        </div>
+      `,
+    };
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+
     res
       .status(200)
-      .json({ message: "Ticket aprobado. Correo en cola.", approvalCodes: ticket.approvalCodes, emailDelivery: { status: "queued" } });
+      .json({ message: "Ticket aprobado y códigos enviados", approvalCodes });
   } catch (error) {
     console.error("Error al aprobar el ticket:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "Error al aprobar el ticket" });
+    res.status(500).json({ error: "Error al aprobar el ticket" });
   }
 });
 
 // 📌 Endpoint para rechazar ticket
 app.post("/api/tickets/reject/:id", async (req, res) => {
   try {
-    await withActiveRaffle(req.raffle._id, async (raffle, session) => {
-      const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).select("-voucher").session(session);
-      if (!ticket) throw httpError(404, "Ticket no encontrado en esta rifa.");
-      if (ticket.approved || ticket.rejected) throw httpError(409, "Esta compra ya fue procesada.");
-      ticket.rejected = true;
-      ticket.rejectedAt = new Date();
-      await ticket.save({ session });
-    });
+    const ticket = await Ticket.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
     // const activeRaffle = await Raffle.findOne();
 
     // const userEmail = ticket.email;
+    await Ticket.findByIdAndDelete(req.params.id);
 
     // const mailOptions = {
     //   from: '"Soporte Rifas" <rifas_support@denilsonbastidas.com>',
@@ -552,10 +620,10 @@ app.post("/api/tickets/reject/:id", async (req, res) => {
     // };
 
     // await transporter.sendMail(mailOptions);
-    res.status(200).json({ message: "Ticket rechazado. Registro conservado." });
+    res.status(200).json({ message: "Ticket rechazado y correo enviado" });
   } catch (error) {
     console.error("Error al rechazar el ticket:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "Error al rechazar el ticket" });
+    res.status(500).json({ error: "Error al rechazar el ticket" });
   }
 });
 
@@ -563,7 +631,7 @@ app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
   try {
     const { mode } = req.params;
     const { startDate, endDate } = req.query;
-    let match = { approved: true, raffleId: req.raffle._id };
+    let match = { approved: true };
 
     if (mode === "today") {
       const startOfDay = moment.tz("America/Caracas").startOf("day").toDate();
@@ -589,7 +657,7 @@ app.get("/api/tickets/top-buyers/:mode", async (req, res) => {
           _id: "$emailLower",
           fullName: { $first: "$fullName" },
           phone: { $first: "$phone" },
-          totalTickets: { $sum: { $size: { $ifNull: ["$approvalCodes", []] } } },
+          totalTickets: { $sum: "$numberTickets" },
           purchases: { $sum: 1 },
         },
       },
@@ -609,7 +677,7 @@ app.get("/api/tickets/summary", async (req, res) => {
   try {
     const summary = await Ticket.aggregate([
       {
-        $match: { approved: true, raffleId: req.raffle._id },
+        $match: { approved: true },
       },
       {
         $addFields: {
@@ -641,23 +709,72 @@ app.get("/api/tickets/summary", async (req, res) => {
 // 📌 Endpoint para reenviar el ticket aprobado por correo
 app.post("/api/tickets/resend/:id", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: req.raffle._id }).select("-voucher").lean();
+    const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ error: "Ticket no encontrado" });
 
     if (!ticket.approved) {
       return res.status(400).json({ error: "El ticket aún no ha sido aprobado." });
     }
 
-    let updated = await Ticket.findOneAndUpdate({
-      _id: ticket._id, raffleId: req.raffle._id, approved: true, rejected: { $ne: true },
-      "emailDelivery.status": { $nin: ["queued", "sending", "retrying"] },
-    }, { $set: { emailDelivery: queuedEmail() } }, { new: true }).select("emailDelivery").lean();
-    if (!updated) updated = await Ticket.findOne({ _id: ticket._id, raffleId: req.raffle._id }).select("emailDelivery").lean();
-    if (!updated) return res.status(404).json({ error: "Ticket no encontrado" });
-    res.status(200).json({
-      message: "Correo en cola. El estado se actualizará en el panel.",
-      emailDelivery: updated.emailDelivery,
-    });
+    const activeRaffle = await Raffle.findOne();
+    if (!activeRaffle) {
+      return res.status(400).json({ error: "No hay una rifa activa en este momento." });
+    }
+
+    const sendSmtpEmail = {
+      sender: { name: "Soporte Rifas", email: "rifasdenilsonbastidas@gmail.com" },
+      to: [{ email: ticket.email, name: ticket.fullName }],
+      subject: "🎟️ Reenvío de Ticket Aprobado",
+      htmlContent: `
+        <div style="font-family: Arial, sans-serif; text-align: center; padding: 20px; border: 1px solid #ddd;">
+          <div style="margin-bottom: 20px;">
+            <img src="https://my-raffles-back-production.up.railway.app/images/logo-nuevo.png" alt="Logo" 
+                 style="width: 100px; height: 100px; border-radius: 16px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);">
+          </div>
+
+          <p>Hola ${ticket?.fullName}, aquí están nuevamente tus boletos aprobados para <strong>${activeRaffle.name}</strong> 🎉</p>
+          <h2 style="color: #4CAF50;">✅ ¡Tu ticket sigue activo y aprobado!</h2>
+
+          <p><strong>Usuario:</strong> ${ticket?.fullName}</p>
+          <p><strong>📧 Correo asociado:</strong> ${ticket.email}</p>
+          <p><strong>📅 Fecha de aprobación:</strong> ${new Date().toLocaleDateString(
+        "es-ES",
+        { weekday: "long", year: "numeric", month: "long", day: "numeric" }
+      )}</p>
+
+          <p>Boleto(s) comprado(s) (${ticket.approvalCodes.length}):</p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 10px; max-width: 100%; margin: 0 auto;">
+            ${ticket.approvalCodes.map(
+        (code) => `
+              <div style="background: #f4f4f4; margin-bottom: 10px; padding: 12px 16px; border-radius: 8px; font-size: 18px; font-weight: bold; border: 1px solid #ddd; text-align: center;">
+                🎟️ ${code}
+              </div>
+            `
+      ).join("")}
+          </div>
+
+          <strong>Puedes comprar más y aumentar tus posibilidades de ganar.<br>Estos números son elegidos aleatoriamente.</strong>
+          <p style="text-align: center; margin-top: 30px;"><strong>Saludos,</strong><br>Equipo de Denilson Bastidas</p>
+
+          <p style="font-size: 14px; color: #666;">📲 ¡Síguenos en nuestras redes sociales!</p>
+          <div style="justify-content: center; gap: 15px; margin: 0px;">
+            <a href="https://www.tiktok.com/@denilsonbastidas_" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/3046/3046122.png" width="32" height="32">
+            </a>
+            <a href="https://www.instagram.com/denilsonbastidas" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/2111/2111463.png" width="32" height="32">
+            </a>
+            <a href="https://www.facebook.com/profile.php?id=61573705346985" target="_blank">
+              <img src="https://cdn-icons-png.flaticon.com/512/733/733547.png" width="32" height="32">
+            </a>
+          </div>
+        </div>
+      `,
+    };
+
+    await apiInstance.sendTransacEmail(sendSmtpEmail);
+
+    res.status(200).json({ message: "Correo reenviado exitosamente" });
   } catch (error) {
     console.error("Error al reenviar el correo:", error);
     res.status(500).json({ error: "Error al reenviar el correo" });
@@ -693,44 +810,27 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
         .json({ error: "Método de pago inválido. Permitidos: zelle, binance, BDV" });
     }
 
-    const updatedTicket = await withActiveRaffle(req.raffle._id, async (existingRaffle, session) => {
-    if (numberTickets === undefined && !paymentMethod && (newEmail || newPhone)) {
-      const ticket = await Ticket.findOneAndUpdate(
-        { _id: req.params.id, raffleId: existingRaffle._id, rejected: { $ne: true } },
-        { $set: { ...(newEmail ? { email: newEmail } : {}), ...(newPhone ? { phone: newPhone } : {}) }, $inc: { __v: 1 } },
-        { new: true, runValidators: true, session },
-      ).select("-voucher").lean();
-      if (ticket) return ticket;
-      const exists = await Ticket.exists({ _id: req.params.id, raffleId: existingRaffle._id }).session(session);
-      throw httpError(exists ? 409 : 404, exists ? "La compra fue rechazada." : "Ticket no encontrado en esta rifa.");
-    }
-    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: existingRaffle._id }).select("-voucher").session(session);
+    const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
-      throw httpError(404, "Ticket no encontrado en esta rifa.");
-    }
-    if (ticket.rejected) throw httpError(409, "La compra fue rechazada.");
-    if (ticket.approved && numberTickets !== undefined && numberTickets !== ticket.numberTickets) {
-      throw httpError(409, "No se puede cambiar la cantidad de una compra aprobada.");
-    }
-    const quantityChanged = numberTickets !== undefined && numberTickets !== ticket.numberTickets;
-    if (quantityChanged && (!Number.isInteger(numberTickets) || numberTickets < existingRaffle.minValue || numberTickets > 200)) {
-      throw httpError(400, "Cantidad de tickets inválida.");
-    }
-    if (!ticket.approved && quantityChanged && await reservedCount(existingRaffle._id, session, ticket._id) + numberTickets > TOTAL_NUMBERS) {
-      throw httpError(409, "No quedan suficientes números disponibles.");
+      return res.status(404).json({ error: "Ticket no encontrado" });
     }
 
+    const responseParallelDollar = await Dollar.findOne();
+    const existingRaffle = await Raffle.findOne();
+
+    if (!responseParallelDollar || !parseFloat(responseParallelDollar.priceVez)) {
+      return res.status(500).json({ error: "No se encontró el precio del dólar" });
+    }
+
+    if (!existingRaffle || !parseFloat(existingRaffle.ticketPrice)) {
+      return res.status(500).json({ error: "No se encontró el sorteo o el precio del ticket" });
+    }
+
+    const dollarPrice = parseFloat(responseParallelDollar.priceVez);
     const ticketPriceUSD = parseFloat(existingRaffle.ticketPrice);
 
     const oldPaymentMethod = ticket.paymentMethod;
     const newPaymentMethod = paymentMethod || oldPaymentMethod;
-    let dollarPrice;
-    if ((quantityChanged || oldPaymentMethod !== newPaymentMethod) &&
-        (oldPaymentMethod === "BDV" || newPaymentMethod === "BDV")) {
-      const dollar = await Dollar.findOne().select("priceVez").lean().session(session);
-      dollarPrice = Number(dollar?.priceVez);
-      if (!Number.isFinite(dollarPrice) || dollarPrice <= 0) throw httpError(500, "No se encontró el precio del dólar");
-    }
 
     let recalculatedUSD = null;
 
@@ -773,17 +873,15 @@ app.put("/api/tickets/update-contact/:id", async (req, res) => {
     if (newEmail) ticket.email = newEmail;
     if (newPhone) ticket.phone = newPhone;
 
-    await ticket.save({ session });
-    return ticket.toObject();
-    });
+    await ticket.save();
 
     res.status(200).json({
       message: "Datos de contacto actualizados correctamente",
-      ticket: updatedTicket,
+      ticket,
     });
   } catch (error) {
     console.error("Error al actualizar los datos de contacto:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "Error al actualizar los datos de contacto" });
+    res.status(500).json({ error: "Error al actualizar los datos de contacto" });
   }
 });
 
@@ -794,10 +892,7 @@ app.get("/api/tickets", async (req, res) => {
     const limit = parseInt(numbertoshow, 10);
     const skip = (pageNumber - 1) * limit;
 
-    let filter = { raffleId: req.raffle._id, rejected: { $ne: true }, ...(status === "all" ? {} : { approved: false }) };
-    if (!Number.isInteger(pageNumber) || pageNumber < 1 || !Number.isInteger(limit) || limit < 1 || limit > 150) {
-      return res.status(400).json({ error: "Paginación inválida." });
-    }
+    let filter = status === "all" ? {} : { approved: false };
 
     if (paymentMethod) {
       filter.paymentMethod = paymentMethod;
@@ -810,60 +905,19 @@ app.get("/api/tickets", async (req, res) => {
       { $sort: { _id: sortOrder } },
       { $skip: skip },
       { $limit: limit },
-      { $addFields: { hasVoucher: { $ne: [{ $ifNull: ["$voucher", ""] }, ""] } } },
-      { $project: { voucher: 0 } },
     ]);
 
-    res.json(tickets);
+    const ticketsWithImageURL = tickets.map((ticket) => ({
+      ...ticket,
+      voucher: ticket.voucher
+        ? `${req.protocol}://${req.get("host")}/uploads/${ticket.voucher}`
+        : null,
+    }));
+
+    res.json(ticketsWithImageURL);
   } catch (error) {
     console.error("Error al obtener tickets:", error);
     res.status(500).json({ error: "Error al obtener los tickets" });
-  }
-});
-
-app.get("/api/tickets/email-status", async (req, res) => {
-  try {
-    const ids = typeof req.query.ids === "string" ? req.query.ids.split(",") : [];
-    if (!ids.length || ids.length > 150 || ids.some((id) => !mongoose.isValidObjectId(id))) {
-      return res.status(400).json({ error: "Se requieren entre 1 y 150 IDs válidos." });
-    }
-    const tickets = await Ticket.find({ _id: { $in: ids }, raffleId: req.raffle._id, approved: true })
-      .select("_id emailDelivery.status emailDelivery.sentAt").lean();
-    res.json({ tickets });
-  } catch (error) {
-    console.error("Error al consultar estado de correos:", error);
-    res.status(500).json({ error: "No se pudo consultar el estado de los correos." });
-  }
-});
-
-app.get("/api/tickets/:id/voucher", async (req, res) => {
-  try {
-    const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: req.raffle._id }).select("voucher").lean();
-    if (!ticket) return res.status(404).json({ error: "Ticket no encontrado en esta rifa." });
-    if (!ticket.voucher) return res.status(404).json({ error: "Esta compra no tiene comprobante." });
-    res.json({ voucher: imageUrl(req, ticket.voucher) });
-  } catch (error) {
-    console.error("Error al cargar comprobante:", error);
-    res.status(500).json({ error: "No se pudo cargar el comprobante." });
-  }
-});
-
-app.delete("/api/tickets/:id", async (req, res) => {
-  try {
-    const deleted = await withActiveRaffle(req.raffle._id, async (raffle, session) => {
-      const ticket = await Ticket.findOne({ _id: req.params.id, raffleId: raffle._id }).session(session);
-      if (!ticket) throw httpError(404, "Ticket no encontrado en esta rifa.");
-      if (!ticket.approved || ticket.rejected) throw httpError(409, "Solo se pueden eliminar compras aprobadas. Para las pendientes use Rechazar.");
-      await DeletedTicket.create([{
-        raffleId: raffle._id, originalTicketId: ticket._id, ticket: ticket.toObject(),
-      }], { session });
-      await Ticket.deleteOne({ _id: ticket._id, raffleId: raffle._id }).session(session);
-      return { approved: ticket.approved, rejected: ticket.rejected, releasedNumbers: ticket.approvalCodes.length };
-    });
-    res.json({ message: "Ticket eliminado. Se conservó una copia de auditoría.", ...deleted });
-  } catch (error) {
-    console.error("Error al eliminar ticket:", error);
-    res.status(error.status || 500).json({ error: error.status ? error.message : "No se pudo eliminar el ticket." });
   }
 });
 
@@ -872,15 +926,15 @@ app.get("/api/tickets/check", async (req, res) => {
   try {
     const { number } = req.query;
 
-    if (typeof number !== "string" || !/^\d{1,4}$/.test(number)) {
+    if (!number) {
       return res.status(400).json({
         error: "Se requiere el número de boleto (`number`).",
       });
     }
 
     const ticket = await Ticket.findOne(
-      { raffleId: req.raffle._id, approved: true, approvalCodes: String(number).padStart(4, "0") },
-      isAdmin(req) ? "-voucher" : "fullName approvalCodes"
+      { approvalCodes: String(number) },
+      '-voucher'
     );
 
     if (!ticket) {
@@ -906,7 +960,7 @@ app.get("/api/tickets/check", async (req, res) => {
 app.get("/api/tickets/sold-numbers", async (req, res) => {
   try {
     const soldNumbers = await Ticket.find(
-      { raffleId: req.raffle._id, approved: true },
+      { approved: true },
       { approvalCodes: 1 }
     );
 
@@ -937,8 +991,7 @@ app.post("/api/tickets/check", async (req, res) => {
 
     email = email.toLowerCase();
 
-    const escapedEmail = email.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const tickets = await Ticket.find({ raffleId: req.raffle._id, rejected: { $ne: true }, email: { $regex: `^${escapedEmail}$`, $options: "i" } });
+    const tickets = await Ticket.find({ email: { $regex: `^${email}$`, $options: "i" } });
 
     if (tickets.length === 0) {
       return res.status(404).json({
@@ -978,7 +1031,7 @@ app.post("/api/tickets/check", async (req, res) => {
 // <<<<<<<<< ADMIN authentication >>>>>>>>>>>>>>>>
 app.post("/api/admin/auth", async (req, res) => {
   const { token } = req.body;
-  if (!process.env.ADMIN_SECRET || token !== process.env.ADMIN_SECRET) {
+  if (token !== process.env.ADMIN_SECRET) {
     return res.status(403).json({ error: "denied" });
   }
 
@@ -988,31 +1041,33 @@ app.post("/api/admin/auth", async (req, res) => {
 // Servir imágenes subidas
 app.use("/uploads", express.static("uploads"));
 
-// Iniciar servidor
+async function verifySingleRaffleDatabase() {
+  const raffles = await Raffle.collection.find({}, { projection: { _id: 1, status: 1 } }).toArray();
+  if (raffles.length > 1 || raffles.some((raffle) => raffle.status === "closed")) {
+    throw new Error("La base no es compatible con una sola rifa: hay varias rifas o una rifa cerrada. Revisar los datos antes de iniciar; no se borraron registros.");
+  }
+  const foreignTickets = await Ticket.collection.countDocuments({
+    raffleId: { $exists: true, $ne: raffles[0]?._id || null },
+    rejected: { $ne: true },
+  });
+  if (foreignTickets) throw new Error("Hay compras de otra rifa. Revisar la base antes de iniciar; no se modificaron datos.");
+  const queued = await Ticket.collection.countDocuments({
+    "emailDelivery.status": { $in: ["queued", "sending", "retrying"] },
+  });
+  if (queued) throw new Error("Hay correos pendientes. Dejar que la version anterior termine de enviarlos antes de volver a una sola rifa.");
+}
+
 if (require.main === module) {
   mongoose.connect(MONGO_URI)
-    .then(() => migrateLegacyTickets())
-    .then(() => Promise.all([Raffle.createIndexes(), Ticket.createIndexes(), DeletedTicket.createIndexes()]))
-    .then(() => {
-      const server = app.listen(PORT, () => console.log(`Servidor en http://localhost:${PORT}`));
-      const stopEmails = startEmailWorker((email) => apiInstance.sendTransacEmail(email));
-      const shutdown = async () => {
-        await stopEmails();
-        await new Promise((resolve) => server.close(resolve));
-        await mongoose.disconnect();
-      };
-      for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
-        shutdown().catch((error) => {
-          console.error("Error al detener servidor:", error);
-          process.exitCode = 1;
-        });
-      });
-    })
+    .then(() => verifySingleRaffleDatabase())
+    .then(() => app.listen(PORT, () => {
+      console.log(`🚀 Servidor en http://localhost:${PORT}`);
+    }))
     .catch(async (error) => {
-      console.error("Inicio abortado:", error);
+      console.error("Inicio de una sola rifa abortado:", error);
       await mongoose.disconnect();
       process.exitCode = 1;
     });
 }
 
-module.exports = { app, apiInstance };
+module.exports = { app, Raffle, Ticket, Dollar, apiInstance, verifySingleRaffleDatabase };

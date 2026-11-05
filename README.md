@@ -1,85 +1,23 @@
-# Backend de rifas
+# Backend de una sola rifa
 
-## Modelo y ciclo de vida
+Se restauro el funcionamiento anterior a multiples rifas (base `08f9803`):
 
-- Se pueden crear varias rifas activas simultaneamente.
-- Cada compra pertenece obligatoriamente a una rifa mediante `raffleId`.
-- Las consultas, numeros, pagos, ranking, aprobaciones y correos se limitan a esa rifa.
-- Cada rifa tiene 10.000 numeros (`0000` a `9999`). Un numero puede repetirse en otra rifa, pero no dentro de la misma.
-- `visible` solo controla la disponibilidad publica de una rifa activa; no significa que este cerrada.
-- Cerrar cambia `status` a `closed` y guarda `closedAt`. Primero deben aprobarse o rechazarse todas las compras pendientes.
-- No existe eliminacion de rifas. Las compras rechazadas tambien se conservan, pero no reservan numeros ni cuentan en ventas.
-- Solo se pueden eliminar compras aprobadas de una rifa activa: se retiran de ventas y consultas y se liberan sus numeros. Antes se guarda una copia completa (incluidos comprobante, numeros y fecha de eliminacion) en `deletedtickets`, dentro de la misma transaccion. Las pendientes se rechazan; los rechazados se conservan para auditoria, pero no aparecen en los listados del panel. No se pueden eliminar compras de rifas cerradas.
-- Una rifa cerrada es inmutable. Se permiten consultas y reenvios administrativos de boletos ya aprobados, usando siempre el nombre de la rifa original.
+- Solo puede existir una rifa. No hay historial, cierre ni cola de correos.
+- Las compras y consultas no requieren `raffleId`.
+- Rechazar elimina la compra. Eliminar la rifa desde el panel elimina sus tickets, como antes. Esta accion es destructiva.
+- Aprobar y reenviar esperan la respuesta del proveedor de correo, como en la version original.
+- Se conservan las variables existentes `MONGO_URI`, `ADMIN_SECRET`, `BREVO_API_KEY`, `MAX_CODES` y `PORT`. Si `MONGO_URI` no esta definida, el servidor conserva su configuracion previa. No publicar credenciales.
 
-## Configuracion
+## Compatibilidad con la base migrada
 
-Se usan las variables existentes `MONGO_URI`, `ADMIN_SECRET`, `BREVO_API_KEY` y opcionalmente `PORT`.
-Usar `.env.example` solo como plantilla local: no contiene valores de produccion. En Railway, configurar las variables en el servicio, sin subir `.env` a Git.
-Conservar exactamente la URI y el nombre de base de datos existentes para no iniciar con una base vacia. `ADMIN_SECRET` es el token de acceso actual del panel; no se necesita cambiarlo para esta actualizacion.
-`MAX_CODES` ya no se usa: cada rifa tiene 10.000 numeros. `PHONE_NUMBER` no participa en el flujo actual.
-MongoDB debe ser un **replica set** o un cluster Atlas: las compras, aprobaciones, ediciones y cierres usan transacciones para evitar carreras.
-La asignacion de numeros es aleatoria, sin numeros preferidos.
+Revertir Git no revierte MongoDB. No se borraron datos de produccion durante esta restauracion. Los campos `raffleId`, `status`, `emailDelivery`, los indices nuevos y la coleccion `deletedtickets` pueden seguir presentes, pero esta version no crea historial ni auditorias nuevas.
 
-```powershell
-npm.cmd ci
-npm.cmd test
-npm.cmd start
-```
+Los rechazados guardados por la version de multiples rifas se excluyen de consultas, totales y acciones para que no reaparezcan. Las compras aprobadas, sus numeros y comprobantes se conservan; una compra eliminada antes de esta restauracion no se recupera automaticamente desde auditoria.
 
-Las pruebas levantan un replica set efimero local con `mongodb-memory-server`, sin conectarse a la base configurada en `.env` y sin enviar correos reales.
-La primera ejecucion puede descargar el binario de MongoDB.
+Antes de escuchar peticiones, el servidor comprueba que no haya multiples rifas, una cerrada, compras asociadas a otra rifa ni correos pendientes de la cola anterior. Si detecta una incompatibilidad, se detiene explicitamente sin modificar datos.
 
-## Despliegue y migracion
+Desplegar backend y frontend de `master` juntos y hacer copia de seguridad antes. No limpiar indices ni campos manualmente sin respaldo. Si hay correos pendientes, dejar que la version con cola los termine antes de cambiar. Eliminar completamente los metadatos residuales es una operacion distinta y requiere autorizacion.
 
-1. Hacer una copia de seguridad de MongoDB y detener temporalmente las compras. No ejecutar dos versiones del backend durante la migracion.
-2. Desplegar backend y frontend de forma coordinada: las peticiones antiguas sin `raffleId` ya no son validas.
-   Conservar `master` como rama del servicio Railway y rama de produccion Vercel. No es necesario cambiar de rama para esta actualizacion.
-   Railway: instalar con `npm ci --omit=dev` e iniciar con `npm start`; no ejecutar las pruebas contra produccion.
-   Vercel: configurar `VITE_API_URL` con la URL publica HTTPS del backend (sin `/api` ni barra final), instalar con `npm ci`, compilar con `npm run build` y publicar `dist`. Cualquier cambio de `VITE_API_URL` requiere un nuevo build.
-3. Al iniciar, el backend asigna las compras antiguas sin `raffleId` a la unica rifa existente y marca las rifas antiguas sin estado como activas. No altera numeros, fechas, comprobantes ni pagos.
-4. Si hay compras sin rifa y existen cero o varias rifas, el inicio se detiene sin asignarlas arbitrariamente. Revisar la copia y el origen de los datos. Solo si **todas** esas compras pertenecen a una rifa existente:
+## Validacion
 
-   ```powershell
-   npm.cmd run migrate -- --raffle-id ID_DE_LA_RIFA
-   ```
-
-   Si pertenecen a distintas rifas, deben clasificarse y asignarse individualmente antes de iniciar. El comando anterior no puede inferir esa relacion.
-5. La migracion es idempotente. Despues se crean los indices, incluyendo la unicidad de numeros aprobados por rifa. Si hay duplicados previos, el inicio se detiene: revisarlos, no borrar compras para ocultar el error.
-6. Verificar ventas, consultas y correos de la rifa existente antes de habilitar compras. Desde el panel puede cerrarse y crearse otra inmediatamente, conservando el historial.
-
-Esta migracion no recupera rifas o compras que ya hayan sido eliminadas por versiones anteriores; para ello se necesita una copia de seguridad.
-
-## Contrato de API
-
-- `GET /api/raffles`: devuelve `{ raffles: [...] }`, con estado, imagenes, premios y totales **por rifa**. Las ocultas solo se incluyen para administradores.
-- `POST /api/raffles`: crea otra rifa activa.
-- `PUT /api/raffles?raffleId=ID`: edita una rifa activa.
-- `POST /api/raffles/toggle-visibility?raffleId=ID`: muestra u oculta una activa.
-- `POST /api/raffles/close?raffleId=ID`: cierra sin borrar datos.
-- Todas las rutas de tickets requieren `raffleId` como query o en el cuerpo de la compra. Los IDs de ticket tambien deben pertenecer a la rifa indicada.
-- Las operaciones administrativas de rifas y tickets requieren `Authorization: Bearer <ADMIN_SECRET>`. Comprar y consultar numeros no requieren autenticacion.
-- Aprobar responde `200` al confirmar la transaccion, con `approvalCodes` y `emailDelivery.status: "queued"`. No espera a Brevo ni afirma que el correo ya se envio. Aprobar otra vez devuelve `409`.
-
-## Correos sin bloquear el panel
-
-- La aprobacion y el correo pendiente se guardan juntos en el ticket, en la misma transaccion. El proceso iniciado con `npm start` atiende esta cola persistente con dos envios concurrentes; no necesita otro servicio ni variables nuevas.
-- Los estados son `queued`, `sending`, `retrying`, `sent` y `failed`. La interfaz muestra el estado y consulta solo esos datos cada cinco segundos mientras haya envios pendientes, sin recargar compras ni comprobantes.
-- `GET /api/tickets/email-status?raffleId=ID&ids=ID1,ID2` consulta hasta 150 tickets de esa rifa; requiere administrador.
-- Brevo tiene un timeout de 20 segundos. Los fallos se registran y se reintentan hasta cinco intentos, con esperas exponenciales desde 15 segundos. Tras agotar los intentos, el panel muestra el fallo y permite Reenviar.
-- `POST /api/tickets/resend/:id?raffleId=ID` vuelve a poner el correo en cola, sin regenerar numeros. Si ya hay un envio pendiente, no agrega otro.
-- Si el servidor se reinicia, los trabajos pendientes siguen en MongoDB y los envios interrumpidos se recuperan al vencer su lease de dos minutos. La entrega es al menos una vez: un corte justo despues de que Brevo acepte un correo puede causar un duplicado, nunca nuevos numeros.
-- Las compras antiguas sin estado de correo no se reenvian automaticamente. `sent` significa aceptado por Brevo, no entrega garantizada a la bandeja del cliente.
-- Las ediciones de contacto envian solo campos modificados: bloquean la rifa y actualizan el ticket en dos operaciones de datos, sin una lectura previa adicional, comprobantes, reservas ni tasa del dolar. Las modificaciones financieras mantienen validaciones y transacciones.
-
-## Carga progresiva del administrador
-
-- `GET /api/admin/raffles/current`: carga solo la rifa activa mas reciente, con sus estadisticas. Acepta `raffleId` para abrir otra. Si no hay activas, devuelve la cerrada mas reciente; si no hay rifas, devuelve `raffle: null`.
-- `GET /api/admin/raffles`: devuelve solo `_id`, `name` y `status`; se consulta en segundo plano, sin descargar las imagenes de todas las rifas ni calcular sus estadisticas.
-- `GET /api/tickets?raffleId=ID`: devuelve tickets paginados **sin rechazados ni `voucher`**, con `hasVoucher`. Los indices compuestos cubren rifa, estado y orden; incluso `status=all` excluye rechazados.
-- `GET /api/tickets/:id/voucher?raffleId=ID`: descarga el comprobante solo al abrirlo. Requiere administrador y pertenencia a la rifa.
-- `PUT /api/tickets/update-contact/:id?raffleId=ID`: devuelve `ticket` actualizado sin comprobante; el panel actualiza esa fila sin recargar la tabla. Cambiar solo el contacto no consulta reservas ni tasa del dolar.
-- `DELETE /api/tickets/:id?raffleId=ID`: elimina con copia de auditoria y devuelve si era aprobado/rechazado y cuantos numeros se liberaron. Requiere confirmacion explicita en la interfaz.
-- Las consultas de capacidad suman las reservas en MongoDB, sin descargar comprobantes. Se conserva el bloqueo transaccional por rifa para coordinar compras, edicion, aprobacion, eliminacion y cierre.
-
-Desplegar backend y frontend coordinadamente para los contratos de vouchers y envio de correo. No se necesitan nuevas variables de entorno ni una migracion manual; los indices, incluidos los de la cola, se preparan al iniciar. Mantener el servicio Node ejecutandose para procesar correos; no usar un runtime que congele el proceso entre peticiones. Las pruebas usan 150 compras con vouchers de 100 KB y exigen una respuesta de tabla inferior a 150 KB y una reduccion mayor al 99% frente a transmitir esos vouchers. Tambien bloquean el proveedor de correo y exigen respuestas de aprobacion y edicion inferiores a un segundo en la base local de pruebas; esto no mide la latencia de produccion.
+`npm.cmd test` ejecuta pruebas aisladas con un replica set efimero, sin tocar la base configurada ni enviar correos reales. Cubre datos migrados, compras nuevas sin rifa, aprobacion, edicion, rechazo, totales, consulta, eliminacion de la rifa y las condiciones de inicio.
